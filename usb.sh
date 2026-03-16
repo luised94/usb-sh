@@ -22,6 +22,7 @@
 #   USB_DEFAULT_PHASE    -- "auto", "manual", or "always", from .usb-manifest
 #   USB_SYNC_LOG         -- absolute path to sync log file, from .usb-manifest
 #   USB_LOADED_PROJECTS  -- indexed array of loaded project names
+#   USB_DRIVE_LETTER     -- Windows drive letter for WSL eject, set if USB found on WSL
 #
 # Per-project variables set during LOAD phase.
 # Replace KBD with the uppercased project name (e.g. FINANCES, SM2).
@@ -43,7 +44,26 @@ USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 # FIND -- USB hardware detection
 # Sets: USB_CONNECTED, USB_MOUNT_POINT, USB_ENV
 # =============================================================================
+# =============================================================================
+# FIND -- USB hardware detection
+# Sets: USB_CONNECTED, USB_MOUNT_POINT, USB_ENV, USB_DRIVE_LETTER
+# =============================================================================
 
+USB_CACHE_FILE="/tmp/usb_drive_cache"
+
+export USB_CONNECTED=false
+unset USB_MOUNT_POINT
+unset USB_DRIVE_LETTER
+
+if [[ "$1" == "force" ]]; then
+    rm -f "$USB_CACHE_FILE"
+fi
+
+if [[ -n "$WSL_DISTRO_NAME" ]]; then
+    export USB_ENV="wsl"
+else
+    export USB_ENV="linux"
+fi
 
 
 # =============================================================================
