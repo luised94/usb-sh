@@ -42,10 +42,6 @@ USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 
 # =============================================================================
 # FIND -- USB hardware detection
-# Sets: USB_CONNECTED, USB_MOUNT_POINT, USB_ENV
-# =============================================================================
-# =============================================================================
-# FIND -- USB hardware detection
 # Sets: USB_CONNECTED, USB_MOUNT_POINT, USB_ENV, USB_DRIVE_LETTER
 # =============================================================================
 
@@ -65,6 +61,68 @@ else
     export USB_ENV="linux"
 fi
 
+
+if [[ "$USB_ENV" == "wsl" ]]; then
+
+    if [[ -f "$USB_CACHE_FILE" ]]; then
+        echo "usb: found cache file $USB_CACHE_FILE"
+        USB_CACHED_DRIVE_LETTER=$(cat "$USB_CACHE_FILE")
+        USB_POTENTIAL_MOUNT_POINT="/mnt/${USB_CACHED_DRIVE_LETTER,,}"
+        if [[ -f "$USB_POTENTIAL_MOUNT_POINT/.usb-manifest" ]]; then
+            export USB_DRIVE_LETTER="$USB_CACHED_DRIVE_LETTER"
+            export USB_MOUNT_POINT="$USB_POTENTIAL_MOUNT_POINT"
+            export USB_CONNECTED=true
+        else
+            echo "usb: cache stale, removing"
+            rm -f "$USB_CACHE_FILE"
+        fi
+    fi
+
+    if [[ "$USB_CONNECTED" == false ]]; then
+        if command -v powershell.exe > /dev/null 2>&1; then
+            USB_DETECTED_DRIVE_LETTER=$(powershell.exe -NoProfile -Command '
+                Get-Volume | Where-Object {
+                    $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\.usb-manifest")
+                } | Select-Object -ExpandProperty DriveLetter
+            ' 2>/dev/null | tr -d '\r')
+
+            if [[ -n "$USB_DETECTED_DRIVE_LETTER" ]]; then
+                export USB_DRIVE_LETTER="$USB_DETECTED_DRIVE_LETTER"
+                export USB_MOUNT_POINT="/mnt/${USB_DETECTED_DRIVE_LETTER,,}"
+                echo "$USB_DETECTED_DRIVE_LETTER" > "$USB_CACHE_FILE"
+
+                if [[ ! -d "$USB_MOUNT_POINT" ]]; then
+                    sudo mkdir -p "$USB_MOUNT_POINT"
+                fi
+
+                if [[ ! -f "$USB_MOUNT_POINT/.usb-manifest" ]]; then
+                    echo "usb: mounting ${USB_DETECTED_DRIVE_LETTER}:..."
+                    if sudo mount -t drvfs "${USB_DETECTED_DRIVE_LETTER}:" "$USB_MOUNT_POINT" -o metadata; then
+                        export USB_CONNECTED=true
+                    else
+                        echo "usb[ERROR]: mount failed"
+                        unset USB_MOUNT_POINT
+                        unset USB_DRIVE_LETTER
+                        rm -f "$USB_CACHE_FILE"
+                    fi
+                else
+                    export USB_CONNECTED=true
+                fi
+            fi
+        fi
+    fi
+else
+
+    for usb_candidate_path in /mnt/* /media/"$USER"/* /run/media/"$USER"/*; do
+        if [[ -f "$usb_candidate_path/.usb-manifest" ]]; then
+            export USB_MOUNT_POINT="$usb_candidate_path"
+            export USB_CONNECTED=true
+            echo "usb: USB connected at $USB_MOUNT_POINT"
+            break
+        fi
+    done
+
+fi
 
 # =============================================================================
 # LOAD -- Source .usb-manifest and .usb-projects/*.conf
