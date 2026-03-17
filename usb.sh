@@ -178,10 +178,24 @@ if [[ "$USB_CONNECTED" == true ]]; then
         unset sync_files
         unset sync_dirs
 
-        usb_project_name=$(basename "$usb_conf_file_path" .conf)
 
+usb_project_name=$(basename "$usb_conf_file_path" .conf)
+        # Conf files must use single-line assignments only.
+        # This whitelist catches accidental corruption and stray commands.
+        if grep -qvE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"; then
+            echo "usb[ERROR]: conf '$usb_project_name' contains unexpected content:"
+            grep -vE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"
+            continue
+        fi
         source "$usb_conf_file_path"
-
+        if [[ -z "$local_dir" ]]; then
+            echo "usb[ERROR]: conf '$usb_project_name' missing required key: local_dir"
+            continue
+        fi
+        if [[ -z "$repo_path" ]]; then
+            echo "usb[ERROR]: conf '$usb_project_name' missing required key: repo_path"
+            continue
+        fi
         if [[ ! -d "$local_dir" ]]; then
             echo "usb[WARN]: local_dir for project '$usb_project_name' not found: $local_dir -- skipping"
             continue
