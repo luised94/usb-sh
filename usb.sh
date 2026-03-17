@@ -132,6 +132,92 @@ fi
 # =============================================================================
 
 
+if [[ "$USB_CONNECTED" == true ]]; then
+
+    source "$USB_MOUNT_POINT/.usb-manifest"
+    export USB_MANIFEST_VERSION
+    export USB_LABEL
+    export USB_DEFAULT_PHASE
+    USB_SYNC_LOG="$USB_MOUNT_POINT/$USB_SYNC_LOG"
+    export USB_SYNC_LOG
+
+    USB_LOADED_PROJECTS=()
+
+    for usb_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
+
+        if [[ ! -f "$usb_conf_file_path" ]]; then
+            break
+        fi
+
+        unset local_dir
+        unset repo_path
+        unset sync_files
+        unset sync_dirs
+
+        usb_project_name=$(basename "$usb_conf_file_path" .conf)
+
+        source "$usb_conf_file_path"
+
+        if [[ ! -d "$local_dir" ]]; then
+            echo "usb[WARN]: local_dir for project '$usb_project_name' not found: $local_dir -- skipping"
+            continue
+        fi
+
+        usb_project_name_upper="${usb_project_name^^}"
+
+        USB_RESOLVED_SYNC_FILES=()
+        for usb_sync_files_entry in "${sync_files[@]}"; do
+            usb_sync_files_entry="${usb_sync_files_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_sync_files_entry="${usb_sync_files_entry//\{LOCAL_DIR\}/$local_dir}"
+            USB_RESOLVED_SYNC_FILES+=("$usb_sync_files_entry")
+        done
+
+        USB_RESOLVED_SYNC_DIRS=()
+        for usb_sync_dirs_entry in "${sync_dirs[@]}"; do
+            usb_sync_dirs_entry="${usb_sync_dirs_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_sync_dirs_entry="${usb_sync_dirs_entry//\{LOCAL_DIR\}/$local_dir}"
+            USB_RESOLVED_SYNC_DIRS+=("$usb_sync_dirs_entry")
+        done
+
+        export "USB_${usb_project_name_upper}_LOCAL_DIR=$local_dir"
+        export "USB_${usb_project_name_upper}_REPO_PATH=$repo_path"
+
+        usb_sync_files_assignment="USB_${usb_project_name_upper}_SYNC_FILES=("
+        for usb_resolved_sync_files_entry in "${USB_RESOLVED_SYNC_FILES[@]}"; do
+            usb_sync_files_assignment+="$(printf '%q' "$usb_resolved_sync_files_entry") "
+        done
+        usb_sync_files_assignment+=")"
+        eval "$usb_sync_files_assignment"
+
+        usb_sync_dirs_assignment="USB_${usb_project_name_upper}_SYNC_DIRS=("
+        for usb_resolved_sync_dirs_entry in "${USB_RESOLVED_SYNC_DIRS[@]}"; do
+            usb_sync_dirs_assignment+="$(printf '%q' "$usb_resolved_sync_dirs_entry") "
+        done
+        usb_sync_dirs_assignment+=")"
+        eval "$usb_sync_dirs_assignment"
+
+        USB_LOADED_PROJECTS+=("$usb_project_name")
+
+    done
+
+    unset local_dir
+    unset repo_path
+    unset sync_files
+    unset sync_dirs
+    unset usb_conf_file_path
+    unset usb_project_name
+    unset usb_project_name_upper
+    unset USB_RESOLVED_SYNC_FILES
+    unset USB_RESOLVED_SYNC_DIRS
+    unset usb_sync_files_entry
+    unset usb_sync_dirs_entry
+    unset usb_sync_files_assignment
+    unset usb_sync_dirs_assignment
+    unset usb_resolved_sync_files_entry
+    unset usb_resolved_sync_dirs_entry
+    echo "usb: loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
+
+fi
 
 # =============================================================================
 # SYNC -- Execute sync_files entries for auto and always phases on startup
