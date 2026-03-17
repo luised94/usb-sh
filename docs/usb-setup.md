@@ -1,7 +1,8 @@
 # usb-setup
 ## Background
 Reference document for the first versions of `.usb-manifest` and `.usb-projects/kbd.conf`
-Documents were created 2026-03-16.
+Documents were created 2026-03-16. Verified against USB content 2026-03-16.
+```
 
 ## .usb-manifest
 ```bash

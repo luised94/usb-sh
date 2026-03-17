@@ -310,3 +310,38 @@ Git remote validation, commit strategy, and all git operations stay in kbd.sh. `
 - **sync_dirs implementation.** Schema declared, not processed. Implement when a concrete directory sync use case arrives.
 - **Condition types beyond `newer`.** The condition field is extensible. Add `always`, `missing`, `checksum`, etc. as needed.
 - **envsubst for token resolution.** Rejected - pure bash parameter expansion is sufficient and dependency-free.
+
+---
+
+## Post-Implementation Notes
+
+### USB_DRIVE_LETTER Added to Global Schema
+`USB_DRIVE_LETTER` was not in the original variable table. It is set during FIND (WSL path only) and holds the Windows drive letter (e.g. "D"). It is required by `usb_eject` to invoke the PowerShell eject verb. It is unset on eject along with the other global USB vars.
+
+Full entry for the global variable table:
+
+| Variable | Type | Set When |
+|----------|------|----------|
+| `USB_DRIVE_LETTER` | string, single letter | USB found on WSL |
+
+### FUNCTIONS Section Moved Before SYNC
+The original design implied section order: FIND -> LOAD -> SYNC -> FUNCTIONS. The implemented order is FIND -> LOAD -> FUNCTIONS -> SYNC. The SYNC section calls `_usb_run_sync_files` at source time, not inside a deferred function. Bash requires a function to be defined before the line that calls it is reached. Moving FUNCTIONS above SYNC resolves the forward-reference without any behavioral change.
+
+### Array Write: eval + printf %q in LOAD
+Bash arrays cannot be exported via the `export` builtin -- only scalar variables can be exported to the environment. Per-project arrays are assigned into the global scope using eval with printf %q quoting:
+```
+eval "USB_${upper}_SYNC_FILES=($(printf '%q ' "${entries[@]}"))"
+```
+
+printf %q quotes each entry safely, handling paths with spaces or special characters. No external dependencies.
+
+### Array Read: declare -n Nameref in Functions
+Inside `_usb_run_sync_files`, the per-project array is read via a declare -n nameref rather than eval-by-index:
+```
+declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
+```
+
+Namerefs are cleaner than eval for reading and require bash 4.3+, which is confirmed on the target system. Namerefs are used for reading only -- writing through a nameref to a dynamically-named global is less predictable and is avoided.
+```
+
+---
