@@ -46,7 +46,7 @@ USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 # =============================================================================
 
 USB_CACHE_FILE="/tmp/usb_drive_cache"
-
+USB_MANIFEST_FILENAME=".usb-manifest"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
@@ -68,11 +68,14 @@ if [[ "$USB_ENV" == "wsl" ]]; then
         echo "usb: found cache file $USB_CACHE_FILE"
         USB_CACHED_DRIVE_LETTER=$(cat "$USB_CACHE_FILE")
         USB_POTENTIAL_MOUNT_POINT="/mnt/${USB_CACHED_DRIVE_LETTER,,}"
-        if [[ -f "$USB_POTENTIAL_MOUNT_POINT/.usb-manifest" ]]; then
+
+        if [[ -f "$USB_POTENTIAL_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
             export USB_DRIVE_LETTER="$USB_CACHED_DRIVE_LETTER"
             export USB_MOUNT_POINT="$USB_POTENTIAL_MOUNT_POINT"
             export USB_CONNECTED=true
+
         else
+
             echo "usb: cache stale, removing"
             rm -f "$USB_CACHE_FILE"
         fi
@@ -82,7 +85,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
         if command -v powershell.exe > /dev/null 2>&1; then
             USB_DETECTED_DRIVE_LETTER=$(powershell.exe -NoProfile -Command '
                 Get-Volume | Where-Object {
-                    $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\.usb-manifest")
+                  $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\'"$USB_MANIFEST_FILENAME"'")
                 } | Select-Object -ExpandProperty DriveLetter
             ' 2>/dev/null | tr -d '\r')
 
@@ -95,7 +98,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
                     sudo mkdir -p "$USB_MOUNT_POINT"
                 fi
 
-                if [[ ! -f "$USB_MOUNT_POINT/.usb-manifest" ]]; then
+                if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
                     echo "usb: mounting ${USB_DETECTED_DRIVE_LETTER}:..."
                     if sudo mount -t drvfs "${USB_DETECTED_DRIVE_LETTER}:" "$USB_MOUNT_POINT" -o metadata; then
                         export USB_CONNECTED=true
@@ -114,7 +117,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
 else
 
     for usb_candidate_path in /mnt/* /media/"$USER"/* /run/media/"$USER"/*; do
-        if [[ -f "$usb_candidate_path/.usb-manifest" ]]; then
+        if [[ -f "$usb_candidate_path/$USB_MANIFEST_FILENAME" ]]; then
             export USB_MOUNT_POINT="$usb_candidate_path"
             export USB_CONNECTED=true
             echo "usb: USB connected at $USB_MOUNT_POINT"
@@ -134,7 +137,7 @@ fi
 
 if [[ "$USB_CONNECTED" == true ]]; then
 
-    source "$USB_MOUNT_POINT/.usb-manifest"
+    source "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"
     export USB_MANIFEST_VERSION
     export USB_LABEL
     export USB_DEFAULT_PHASE
