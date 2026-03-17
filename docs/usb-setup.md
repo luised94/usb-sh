@@ -2,14 +2,16 @@
 ## Background
 Reference document for the first versions of `.usb-manifest` and `.usb-projects/kbd.conf`
 Documents were created 2026-03-16. Verified against USB content 2026-03-16.
-```
-
+`.usb-manifest` updated 2026-03-17 to key:value format.
 ## .usb-manifest
 ```bash
-USB_MANIFEST_VERSION=1
-USB_LABEL="luised94-usb"
-USB_SYNC_LOG=".usb-sync.log"
-USB_DEFAULT_PHASE="auto"
+# .usb-manifest assigned to $USB_MANIFEST_FILENAME.
+cat > "$USB_MOUNT_POINT/.usb-manifest" << 'EOF'
+VERSION=1
+LABEL=luised94-usb
+SYNC_LOG=.usb-sync.log
+DEFAULT_PHASE=auto
+EOF
 ```
 
 ## .usb-projects/kbd.conf

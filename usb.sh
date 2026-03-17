@@ -141,13 +141,30 @@ fi
 
 if [[ "$USB_CONNECTED" == true ]]; then
 
-    source "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"
+
+    while IFS='=' read -r usb_manifest_key usb_manifest_value; do
+        if [[ -z "$usb_manifest_key" || "$usb_manifest_key" == \#* ]]; then
+            continue
+        fi
+        case "$usb_manifest_key" in
+            VERSION)       USB_MANIFEST_VERSION="$usb_manifest_value" ;;
+            LABEL)         USB_LABEL="$usb_manifest_value" ;;
+            SYNC_LOG)      USB_SYNC_LOG="$USB_MOUNT_POINT/$usb_manifest_value" ;;
+            DEFAULT_PHASE) USB_DEFAULT_PHASE="$usb_manifest_value" ;;
+            *)             echo "usb[WARN]: unknown manifest key: $usb_manifest_key" ;;
+        esac
+    done < "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"
+    unset usb_manifest_key
+    unset usb_manifest_value
+    if [[ -z "$USB_LABEL" || -z "$USB_MANIFEST_VERSION" ]]; then
+        echo "usb[ERROR]: manifest missing required keys (LABEL, VERSION)"
+        export USB_CONNECTED=false
+        return 1
+    fi
     export USB_MANIFEST_VERSION
     export USB_LABEL
     export USB_DEFAULT_PHASE
-    USB_SYNC_LOG="$USB_MOUNT_POINT/$USB_SYNC_LOG"
     export USB_SYNC_LOG
-
     USB_LOADED_PROJECTS=()
 
     for usb_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
