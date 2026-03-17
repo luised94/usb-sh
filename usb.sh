@@ -39,6 +39,10 @@
 # =============================================================================
 
 USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
+if [[ "$USB_INITIALIZED" == true && "$1" != "force" ]]; then
+    echo "usb: already initialized (use 'force' to re-run)"
+    return 0
+fi
 
 # =============================================================================
 # FIND -- USB hardware detection
@@ -423,8 +427,9 @@ usb_eject() {
     unset USB_LOADED_PROJECTS
     unset USB_ENV
     export USB_CONNECTED=false
-
+    unset USB_INITIALIZED
     rm -f "$USB_CACHE_FILE"
+
 }
 
 # usb_refresh -- re-source usb.sh with force argument to bypass cache
@@ -454,5 +459,8 @@ if [[ "$USB_CONNECTED" == true ]]; then
             _usb_run_sync_files "$usb_startup_project_name" "startup"
         done
         unset usb_startup_project_name
+
     fi
 fi
+
+USB_INITIALIZED=true
