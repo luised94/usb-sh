@@ -220,13 +220,6 @@ if [[ "$USB_CONNECTED" == true ]]; then
 fi
 
 # =============================================================================
-# SYNC -- Execute sync_files entries for auto and always phases on startup
-# Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
-# =============================================================================
-
-
-
-# =============================================================================
 # FUNCTIONS
 # =============================================================================
 
@@ -239,7 +232,80 @@ fi
 #   sync    -> manual, always
 #   eject   -> auto, always
 _usb_run_sync_files() {
-    :
+    local usb_project_name="$1"
+    local usb_trigger_label="$2"
+    local usb_project_name_upper
+    local usb_sync_files_variable_name
+    local usb_sync_entry
+    local usb_entry_source_path
+    local usb_entry_dest_path
+    local usb_entry_condition
+    local usb_entry_phase
+    local usb_effective_phase
+    local usb_should_run
+    local usb_copy_result
+    local usb_log_timestamp
+
+    usb_project_name_upper="${usb_project_name^^}"
+    usb_sync_files_variable_name="USB_${usb_project_name_upper}_SYNC_FILES"
+
+    declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
+
+    for usb_sync_entry in "${usb_sync_files_array_ref[@]}"; do
+
+        IFS=: read -r usb_entry_source_path usb_entry_dest_path usb_entry_condition usb_entry_phase <<< "$usb_sync_entry"
+
+        if [[ -z "$usb_entry_phase" ]]; then
+            usb_effective_phase="$USB_DEFAULT_PHASE"
+        else
+            usb_effective_phase="$usb_entry_phase"
+        fi
+
+        usb_should_run=false
+
+        if [[ "$usb_trigger_label" == "startup" || "$usb_trigger_label" == "eject" ]]; then
+            if [[ "$usb_effective_phase" == "auto" || "$usb_effective_phase" == "always" ]]; then
+                usb_should_run=true
+            fi
+        fi
+
+        if [[ "$usb_trigger_label" == "sync" ]]; then
+            if [[ "$usb_effective_phase" == "manual" || "$usb_effective_phase" == "always" ]]; then
+                usb_should_run=true
+            fi
+        fi
+
+        if [[ "$usb_should_run" == false ]]; then
+            continue
+        fi
+
+        usb_copy_result="SKIP"
+
+        if [[ "$usb_entry_condition" == "newer" ]]; then
+            if [[ "$usb_entry_source_path" -nt "$usb_entry_dest_path" ]]; then
+                if cp "$usb_entry_source_path" "$usb_entry_dest_path"; then
+                    usb_copy_result="OK"
+                else
+                    usb_copy_result="ERROR"
+                fi
+            fi
+        fi
+
+        usb_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
+
+        if [[ "$usb_copy_result" == "OK" ]]; then
+            echo "usb: [$usb_project_name] synced $usb_entry_source_path -> $usb_entry_dest_path"
+            echo "$usb_log_timestamp [$usb_project_name] COPY $usb_entry_source_path -> $usb_entry_dest_path [OK]" >> "$USB_SYNC_LOG"
+        fi
+
+        if [[ "$usb_copy_result" == "ERROR" ]]; then
+            echo "usb[ERROR]: [$usb_project_name] copy failed $usb_entry_source_path -> $usb_entry_dest_path"
+            echo "$usb_log_timestamp [$usb_project_name] COPY $usb_entry_source_path -> $usb_entry_dest_path [ERROR]" >> "$USB_SYNC_LOG"
+        fi
+
+    done
+
+    unset -n usb_sync_files_array_ref
 }
 
 # usb_sync -- manually trigger file sync for one or all loaded projects
@@ -247,16 +313,143 @@ _usb_run_sync_files() {
 #   [project_name] -- if omitted, syncs all loaded projects
 # Runs phases: manual, always
 usb_sync() {
-    :
+    local usb_sync_target_project="$1"
+    local usb_sync_project_name
+    local usb_project_is_loaded
+
+    if [[ "$USB_CONNECTED" != true ]]; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    if [[ -n "$usb_sync_target_project" ]]; then
+
+        usb_project_is_loaded=false
+        for usb_sync_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            if [[ "$usb_sync_project_name" == "$usb_sync_target_project" ]]; then
+                usb_project_is_loaded=true
+                break
+            fi
+        done
+
+        if [[ "$usb_project_is_loaded" == false ]]; then
+            echo "usb[ERROR]: project '$usb_sync_target_project' is not loaded"
+            echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+            return 1
+        fi
+
+        _usb_run_sync_files "$usb_sync_target_project" "sync"
+
+    else
+
+        for usb_sync_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            _usb_run_sync_files "$usb_sync_project_name" "sync"
+        done
+
+    fi
 }
 
 # usb_eject -- pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
 # Runs phases: auto, always (for all loaded projects before unmount)
 usb_eject() {
-    :
+    local usb_eject_project_name
+    local usb_eject_project_name_upper
+    local usb_drive_still_present
+
+    if [[ "$USB_CONNECTED" != true ]]; then
+        echo "usb: USB is not connected, nothing to eject"
+        return 0
+    fi
+
+    for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        _usb_run_sync_files "$usb_eject_project_name" "eject"
+    done
+
+    if [[ "$PWD" == "$USB_MOUNT_POINT"* ]]; then
+        echo "usb: changing directory to ~"
+        cd ~ || return 1
+    fi
+
+    if mountpoint -q "$USB_MOUNT_POINT" 2>/dev/null; then
+        echo "usb: unmounting $USB_MOUNT_POINT..."
+        if ! sudo umount "$USB_MOUNT_POINT"; then
+            echo "usb[ERROR]: unmount failed, files may still be in use"
+            lsof +D "$USB_MOUNT_POINT" 2>/dev/null || echo "usb: could not list open files"
+            return 1
+        fi
+    fi
+
+    if [[ "$USB_ENV" == "wsl" ]]; then
+
+        if [[ -d "$USB_MOUNT_POINT" ]]; then
+            sudo rmdir "$USB_MOUNT_POINT" 2>/dev/null
+        fi
+
+        if [[ -n "$USB_DRIVE_LETTER" ]]; then
+            echo "usb: ejecting ${USB_DRIVE_LETTER}: from Windows..."
+            powershell.exe -NoProfile -Command "
+                (New-Object -ComObject Shell.Application).NameSpace(17).ParseName('${USB_DRIVE_LETTER}:').InvokeVerb('Eject')
+            " 2>/dev/null
+            sleep 2
+            usb_drive_still_present=$(powershell.exe -NoProfile -Command "Test-Path '${USB_DRIVE_LETTER}:'" 2>/dev/null | tr -d '\r')
+            if [[ "$usb_drive_still_present" == "True" ]]; then
+                echo "usb[WARN]: Windows did not eject the drive, it may still be busy"
+            else
+                echo "usb: drive ejected safely"
+            fi
+        fi
+
+    else
+        echo "usb: unmounted, safe to unplug"
+    fi
+
+    for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        usb_eject_project_name_upper="${usb_eject_project_name^^}"
+        unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
+        unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
+        unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
+        unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
+    done
+
+    unset USB_MOUNT_POINT
+    unset USB_DRIVE_LETTER
+    unset USB_LABEL
+    unset USB_MANIFEST_VERSION
+    unset USB_DEFAULT_PHASE
+    unset USB_SYNC_LOG
+    unset USB_LOADED_PROJECTS
+    unset USB_ENV
+    export USB_CONNECTED=false
+
+    rm -f "$USB_CACHE_FILE"
 }
 
 # usb_refresh -- re-source usb.sh with force argument to bypass cache
 usb_refresh() {
-    :
+    if [[ ! -f "$USB_SCRIPT_PATH" ]]; then
+        echo "usb[ERROR]: script not found at $USB_SCRIPT_PATH"
+        echo "usb: source usb.sh manually from its location"
+        return 1
+    fi
+    echo "usb: refreshing from $USB_SCRIPT_PATH..."
+    source "$USB_SCRIPT_PATH" force
+    if [[ "$USB_CONNECTED" == true ]]; then
+        echo "usb: ready ($USB_ENV, mount: $USB_MOUNT_POINT)"
+    else
+        echo "usb: ready ($USB_ENV, USB not connected)"
+    fi
 }
+
+# =============================================================================
+# SYNC -- Execute sync_files entries for auto and always phases on startup
+# Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
+# =============================================================================
+
+if [[ "$USB_CONNECTED" == true ]]; then
+    if [[ ${#USB_LOADED_PROJECTS[@]} -gt 0 ]]; then
+        for usb_startup_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            _usb_run_sync_files "$usb_startup_project_name" "startup"
+        done
+        unset usb_startup_project_name
+    fi
+fi
