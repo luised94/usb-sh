@@ -497,6 +497,36 @@ usb_refresh() {
     fi
 }
 
+# usb_status -- print diagnostic information about USB state
+# No arguments. Safe to call regardless of connection state.
+usb_status() {
+    local usb_status_project_name
+    local usb_status_project_name_upper
+    local usb_status_sync_files_variable_name
+    echo "usb: status: connected=$USB_CONNECTED"
+    echo "usb: status: environment=$USB_ENV"
+    if [[ "$USB_CONNECTED" != true ]]; then
+        return 0
+    fi
+    echo "usb: status: mount_point=$USB_MOUNT_POINT"
+    if [[ -n "$USB_DRIVE_LETTER" ]]; then
+        echo "usb: status: drive_letter=$USB_DRIVE_LETTER"
+    fi
+    echo "usb: status: manifest_version=$USB_MANIFEST_VERSION"
+    echo "usb: status: label=$USB_LABEL"
+    echo "usb: status: default_phase=$USB_DEFAULT_PHASE"
+    echo "usb: status: sync_log=$USB_SYNC_LOG"
+    for usb_status_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        usb_status_project_name_upper="${usb_status_project_name^^}"
+        usb_status_sync_files_variable_name="USB_${usb_status_project_name_upper}_SYNC_FILES"
+        declare -n usb_status_sync_files_ref="$usb_status_sync_files_variable_name"
+        echo "usb: status: project=$usb_status_project_name"
+        echo "usb: status:   local_dir=$(eval echo "\$USB_${usb_status_project_name_upper}_LOCAL_DIR")"
+        echo "usb: status:   repo_path=$(eval echo "\$USB_${usb_status_project_name_upper}_REPO_PATH")"
+        echo "usb: status:   sync_files_count=${#usb_status_sync_files_ref[@]}"
+        unset -n usb_status_sync_files_ref
+    done
+}
 # =============================================================================
 # SYNC -- Execute sync_files entries for auto and always phases on startup
 # Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
