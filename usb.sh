@@ -210,12 +210,6 @@ usb_project_name=$(basename "$usb_conf_file_path" .conf)
             USB_RESOLVED_SYNC_FILES+=("$usb_sync_files_entry")
         done
 
-        USB_RESOLVED_SYNC_DIRS=()
-        for usb_sync_dirs_entry in "${sync_dirs[@]}"; do
-            usb_sync_dirs_entry="${usb_sync_dirs_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_sync_dirs_entry="${usb_sync_dirs_entry//\{LOCAL_DIR\}/$local_dir}"
-            USB_RESOLVED_SYNC_DIRS+=("$usb_sync_dirs_entry")
-        done
 
         export "USB_${usb_project_name_upper}_LOCAL_DIR=$local_dir"
         export "USB_${usb_project_name_upper}_REPO_PATH=$repo_path"
@@ -226,13 +220,6 @@ usb_project_name=$(basename "$usb_conf_file_path" .conf)
         done
         usb_sync_files_assignment+=")"
         eval "$usb_sync_files_assignment"
-
-        usb_sync_dirs_assignment="USB_${usb_project_name_upper}_SYNC_DIRS=("
-        for usb_resolved_sync_dirs_entry in "${USB_RESOLVED_SYNC_DIRS[@]}"; do
-            usb_sync_dirs_assignment+="$(printf '%q' "$usb_resolved_sync_dirs_entry") "
-        done
-        usb_sync_dirs_assignment+=")"
-        eval "$usb_sync_dirs_assignment"
 
         USB_LOADED_PROJECTS+=("$usb_project_name")
 
@@ -246,13 +233,10 @@ usb_project_name=$(basename "$usb_conf_file_path" .conf)
     unset usb_project_name
     unset usb_project_name_upper
     unset USB_RESOLVED_SYNC_FILES
-    unset USB_RESOLVED_SYNC_DIRS
     unset usb_sync_files_entry
-    unset usb_sync_dirs_entry
     unset usb_sync_files_assignment
-    unset usb_sync_dirs_assignment
     unset usb_resolved_sync_files_entry
-    unset usb_resolved_sync_dirs_entry
+
     echo "usb: loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
 
 fi
@@ -420,7 +404,6 @@ if [[ "$USB_CONNECTED" != true ]]; then
             unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
             unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
             unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
-            unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
         done
         unset USB_MOUNT_POINT
         unset USB_DRIVE_LETTER
@@ -482,7 +465,6 @@ if [[ "$USB_CONNECTED" != true ]]; then
         unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
         unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
         unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
-        unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
     done
 
     unset USB_MOUNT_POINT
