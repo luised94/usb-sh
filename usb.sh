@@ -730,6 +730,147 @@ usb_status() {
     done
 }
 
+
+# usb_check -- validate conf files and check that all referenced paths exist
+# No arguments. Requires USB_CONNECTED=true.
+# Re-reads and parses conf files independently (same while-read pattern as
+# LOAD). Reports only -- no copies, no exports, no state changes.
+usb_check() {
+    local usb_check_conf_file_path
+    local usb_check_project_name
+    local usb_check_local_dir
+    local usb_check_repo_path
+    local usb_check_sync_files
+    local usb_check_sync_dirs
+    local usb_check_conf_key
+    local usb_check_conf_value
+    local usb_check_entry
+    local usb_check_entry_source
+    local usb_check_entry_dest
+    local usb_check_entry_condition
+    local usb_check_entry_phase
+    local usb_check_entry_dest_dir
+    local usb_check_errors=0
+
+    if [[ "$USB_CONNECTED" != true ]]; then
+        echo "usb[ERROR]: USB not connected, cannot check conf files"
+        return 1
+    fi
+
+    for usb_check_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
+        if [[ ! -f "$usb_check_conf_file_path" ]]; then
+            echo "usb: check: no conf files found"
+            break
+        fi
+
+        usb_check_local_dir=""
+        usb_check_repo_path=""
+        usb_check_sync_files=()
+        usb_check_sync_dirs=()
+
+        usb_check_project_name=$(basename "$usb_check_conf_file_path" .conf)
+        echo "usb: check: --- $usb_check_project_name ---"
+        echo "usb: check: conf=$usb_check_conf_file_path"
+
+        while IFS='=' read -r usb_check_conf_key usb_check_conf_value; do
+            if [[ -z "$usb_check_conf_key" || "$usb_check_conf_key" == \#* ]]; then
+                continue
+            fi
+            case "$usb_check_conf_key" in
+                local_dir)
+                    usb_check_local_dir="${usb_check_conf_value//\{HOME\}/$HOME}"
+                    ;;
+                repo_path)
+                    usb_check_repo_path="$usb_check_conf_value"
+                    ;;
+                sync_file)
+                    usb_check_sync_files+=("$usb_check_conf_value")
+                    ;;
+                sync_dir)
+                    usb_check_sync_dirs+=("$usb_check_conf_value")
+                    ;;
+                *)
+                    echo "usb: check: WARN unknown key: $usb_check_conf_key"
+                    ;;
+            esac
+        done < "$usb_check_conf_file_path"
+
+        if [[ -z "$usb_check_local_dir" ]]; then
+            echo "usb: check: ERROR local_dir missing"
+            usb_check_errors=$((usb_check_errors + 1))
+        else
+            echo "usb: check: local_dir=$usb_check_local_dir"
+            if [[ -d "$usb_check_local_dir" ]]; then
+                echo "usb: check:   exists=yes"
+            else
+                echo "usb: check:   exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+        fi
+
+        if [[ -z "$usb_check_repo_path" ]]; then
+            echo "usb: check: ERROR repo_path missing"
+            usb_check_errors=$((usb_check_errors + 1))
+        else
+            echo "usb: check: repo_path=$usb_check_repo_path"
+            if [[ -d "$USB_MOUNT_POINT/$usb_check_repo_path" ]]; then
+                echo "usb: check:   exists=yes"
+            else
+                echo "usb: check:   exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+        fi
+
+        for usb_check_entry in "${usb_check_sync_files[@]}"; do
+            usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
+            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_phase <<< "$usb_check_entry"
+            echo "usb: check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition:$usb_check_entry_phase]"
+            if [[ -f "$usb_check_entry_source" ]]; then
+                echo "usb: check:   source exists=yes"
+            else
+                echo "usb: check:   source exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+            usb_check_entry_dest_dir=$(dirname "$usb_check_entry_dest")
+            if [[ -d "$usb_check_entry_dest_dir" ]]; then
+                echo "usb: check:   dest dir exists=yes"
+            else
+                echo "usb: check:   dest dir exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+        done
+
+        for usb_check_entry in "${usb_check_sync_dirs[@]}"; do
+            usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
+            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_phase <<< "$usb_check_entry"
+            echo "usb: check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition:$usb_check_entry_phase]"
+            if [[ -d "$usb_check_entry_source" ]]; then
+                echo "usb: check:   source dir exists=yes"
+            else
+                echo "usb: check:   source dir exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+            if [[ -d "$usb_check_entry_dest" ]]; then
+                echo "usb: check:   dest dir exists=yes"
+            else
+                echo "usb: check:   dest dir exists=no"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
+        done
+
+    done
+
+    if [[ "$usb_check_errors" -gt 0 ]]; then
+        echo "usb: check: $usb_check_errors error(s) found"
+        return 1
+    else
+        echo "usb: check: all checks passed"
+        return 0
+    fi
+}
+
 # =============================================================================
 # SYNC -- Execute sync_files entries for auto and always phases on startup
 # Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
