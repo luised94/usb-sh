@@ -2,6 +2,8 @@
 # usb.sh -- USB detection, project configuration loading, and file synchronization.
 # Source this file. Do not execute directly.
 # Projects source usb.sh and compose on top of it.
+# Note: FUNCTIONS section must precede SYNC section because SYNC calls
+# _usb_run_sync_files at source time.
 #
 # Usage:
 #   source /path/to/usb.sh [force]
@@ -30,7 +32,6 @@
 #   USB_KBD_LOCAL_DIR    -- absolute path to local project directory
 #   USB_KBD_REPO_PATH    -- relative path to bare git repo on USB, metadata only
 #   USB_KBD_SYNC_FILES   -- indexed array of resolved sync_files entries
-#   USB_KBD_SYNC_DIRS    -- indexed array of resolved sync_dirs entries
 #
 # sync_files entry format: src:dest:condition:phase
 #   condition -- "newer" (copy if src is newer than dest)
@@ -69,7 +70,7 @@ fi
 if [[ "$USB_ENV" == "wsl" ]]; then
 
     if [[ -f "$USB_CACHE_FILE" ]]; then
-        echo "usb: found cache file $USB_CACHE_FILE"
+        echo "usb: cache hit  $USB_CACHE_FILE"
         USB_CACHED_DRIVE_LETTER=$(cat "$USB_CACHE_FILE")
         USB_POTENTIAL_MOUNT_POINT="/mnt/${USB_CACHED_DRIVE_LETTER,,}"
 
@@ -80,7 +81,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
 
         else
 
-            echo "usb: cache stale, removing"
+            echo "usb[WARN]: cache stale, removing"
             rm -f "$USB_CACHE_FILE"
         fi
     fi
@@ -103,7 +104,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
                 fi
 
                 if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
-                    echo "usb: mounting ${USB_DETECTED_DRIVE_LETTER}:..."
+                    echo "usb: mounting ${USB_DETECTED_DRIVE_LETTER}: ..."
                     if sudo mount -t drvfs "${USB_DETECTED_DRIVE_LETTER}:" "$USB_MOUNT_POINT" -o metadata; then
                         export USB_CONNECTED=true
                     else
@@ -142,6 +143,8 @@ fi
 if [[ "$USB_CONNECTED" == true ]]; then
 
 
+    # Parse .usb-manifest as plain key-value data. File is not sourced.
+    # Expected format: KEY=value, one per line. No quotes or brackets. Comments (#) and blank lines skipped.
     while IFS='=' read -r usb_manifest_key usb_manifest_value; do
         if [[ -z "$usb_manifest_key" || "$usb_manifest_key" == \#* ]]; then
             continue
@@ -179,9 +182,11 @@ if [[ "$USB_CONNECTED" == true ]]; then
         unset sync_dirs
 
 
-usb_project_name=$(basename "$usb_conf_file_path" .conf)
-        # Conf files must use single-line assignments only.
-        # This whitelist catches accidental corruption and stray commands.
+        usb_project_name=$(basename "$usb_conf_file_path" .conf)
+
+        # Conf files must use single-line assignments only (no multi-line arrays,
+        # no command substitutions spanning lines). This constraint makes the grep
+        # whitelist validation reliable.
         if grep -qvE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"; then
             echo "usb[ERROR]: conf '$usb_project_name' contains unexpected content:"
             grep -vE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"
@@ -214,6 +219,9 @@ usb_project_name=$(basename "$usb_conf_file_path" .conf)
         export "USB_${usb_project_name_upper}_LOCAL_DIR=$local_dir"
         export "USB_${usb_project_name_upper}_REPO_PATH=$repo_path"
 
+        # Bash arrays cannot cross subshell boundaries via export. eval + printf %q
+        # builds the assignment string with proper quoting for special characters,
+        # then evaluates it in the current shell to create the array.
         usb_sync_files_assignment="USB_${usb_project_name_upper}_SYNC_FILES=("
         for usb_resolved_sync_files_entry in "${USB_RESOLVED_SYNC_FILES[@]}"; do
             usb_sync_files_assignment+="$(printf '%q' "$usb_resolved_sync_files_entry") "
@@ -273,6 +281,9 @@ _usb_run_sync_files() {
     usb_project_name_upper="${usb_project_name^^}"
     usb_sync_files_variable_name="USB_${usb_project_name_upper}_SYNC_FILES"
 
+    # declare -n creates a nameref for reading the dynamically-named sync_files
+    # array. LOAD uses eval to write arrays (dynamic name construction). Functions
+    # use nameref to read them (cleaner than eval for access). Requires bash 4.3+.
     declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
 
     for usb_sync_entry in "${usb_sync_files_array_ref[@]}"; do
@@ -286,6 +297,10 @@ _usb_run_sync_files() {
         fi
 
 
+        # Trigger-to-phase mapping:
+        #   startup -> runs: auto, always
+        #   eject   -> runs: auto, always
+        #   sync    -> runs: manual, always
         usb_should_run=false
 
         case "${usb_trigger_label}:${usb_effective_phase}" in
@@ -300,6 +315,9 @@ _usb_run_sync_files() {
 
         usb_copy_result="SKIP"
         if [[ "$usb_entry_condition" == "newer" ]]; then
+            # bash -nt returns true when the right-hand file does not exist.
+            # This is the desired behavior: a missing destination means the
+            # file should be copied.
             if [[ "$usb_entry_source_path" -nt "$usb_entry_dest_path" ]]; then
                 usb_entry_dest_dir=$(dirname "$usb_entry_dest_path")
                 if [[ ! -d "$usb_entry_dest_dir" ]]; then
