@@ -279,10 +279,12 @@ _usb_run_sync_files() {
     local usb_entry_dest_path
     local usb_entry_condition
     local usb_entry_phase
+    local usb_entry_dest_dir
     local usb_effective_phase
     local usb_should_run
     local usb_copy_result
     local usb_log_timestamp
+    local usb_log_warning_shown=false
 
     usb_project_name_upper="${usb_project_name^^}"
     usb_sync_files_variable_name="USB_${usb_project_name_upper}_SYNC_FILES"
@@ -318,10 +320,13 @@ _usb_run_sync_files() {
         fi
 
         usb_copy_result="SKIP"
-
         if [[ "$usb_entry_condition" == "newer" ]]; then
             if [[ "$usb_entry_source_path" -nt "$usb_entry_dest_path" ]]; then
-                if cp "$usb_entry_source_path" "$usb_entry_dest_path"; then
+                usb_entry_dest_dir=$(dirname "$usb_entry_dest_path")
+                if [[ ! -d "$usb_entry_dest_dir" ]]; then
+                    echo "usb[ERROR]: [$usb_project_name] dest directory does not exist: $usb_entry_dest_dir"
+                    usb_copy_result="ERROR"
+                elif cp "$usb_entry_source_path" "$usb_entry_dest_path"; then
                     usb_copy_result="OK"
                 else
                     usb_copy_result="ERROR"
@@ -329,18 +334,21 @@ _usb_run_sync_files() {
             fi
         fi
 
-        usb_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
 
+        usb_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
         if [[ "$usb_copy_result" == "OK" ]]; then
             echo "usb: [$usb_project_name] synced $usb_entry_source_path -> $usb_entry_dest_path"
-            echo "$usb_log_timestamp [$usb_project_name] COPY $usb_entry_source_path -> $usb_entry_dest_path [OK]" >> "$USB_SYNC_LOG"
-        fi
-
-        if [[ "$usb_copy_result" == "ERROR" ]]; then
+        elif [[ "$usb_copy_result" == "ERROR" ]]; then
             echo "usb[ERROR]: [$usb_project_name] copy failed $usb_entry_source_path -> $usb_entry_dest_path"
-            echo "$usb_log_timestamp [$usb_project_name] COPY $usb_entry_source_path -> $usb_entry_dest_path [ERROR]" >> "$USB_SYNC_LOG"
         fi
-
+        if [[ "$usb_copy_result" == "OK" || "$usb_copy_result" == "ERROR" ]]; then
+            if [[ -n "$USB_SYNC_LOG" ]]; then
+                echo "$usb_log_timestamp [$usb_project_name] COPY $usb_entry_source_path -> $usb_entry_dest_path [$usb_copy_result]" >> "$USB_SYNC_LOG"
+            elif [[ "$usb_log_warning_shown" == false ]]; then
+                echo "usb[WARN]: USB_SYNC_LOG is not set, skipping log writes"
+                usb_log_warning_shown=true
+            fi
+        fi
     done
 
     unset -n usb_sync_files_array_ref
@@ -355,8 +363,15 @@ usb_sync() {
     local usb_sync_project_name
     local usb_project_is_loaded
 
+
     if [[ "$USB_CONNECTED" != true ]]; then
         echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
+        echo "usb[ERROR]: USB appears to have been removed (manifest not found at $USB_MOUNT_POINT/$USB_MANIFEST_FILENAME)"
+        export USB_CONNECTED=false
         return 1
     fi
 
@@ -394,11 +409,32 @@ usb_eject() {
     local usb_eject_project_name_upper
     local usb_drive_still_present
 
-    if [[ "$USB_CONNECTED" != true ]]; then
+if [[ "$USB_CONNECTED" != true ]]; then
         echo "usb: USB is not connected, nothing to eject"
         return 0
     fi
-
+    if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
+        echo "usb: USB already removed, cleaning up state"
+        for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            usb_eject_project_name_upper="${usb_eject_project_name^^}"
+            unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
+            unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
+            unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
+            unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
+        done
+        unset USB_MOUNT_POINT
+        unset USB_DRIVE_LETTER
+        unset USB_LABEL
+        unset USB_MANIFEST_VERSION
+        unset USB_DEFAULT_PHASE
+        unset USB_SYNC_LOG
+        unset USB_LOADED_PROJECTS
+        unset USB_ENV
+        export USB_CONNECTED=false
+        unset USB_INITIALIZED
+        rm -f "$USB_CACHE_FILE"
+        return 0
+    fi
     for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         _usb_run_sync_files "$usb_eject_project_name" "eject"
     done
