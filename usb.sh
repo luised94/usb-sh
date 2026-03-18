@@ -394,6 +394,130 @@ _usb_run_sync_files() {
     unset -n usb_sync_files_array_ref
 }
 
+# _usb_run_sync_dirs -- execute sync_dir entries for a project and trigger
+# Arguments:
+#   project_name  -- name of the project as it appears in USB_LOADED_PROJECTS
+#   trigger_label -- one of: startup, sync, eject
+# Per-file newer check: walks source tree, copies files newer than dest.
+# Creates subdirectories within dest_dir as needed. Top-level dest_dir
+# must exist (setup error if missing). Symlinks skipped with warning.
+# Does not delete files missing from source.
+_usb_run_sync_dirs() {
+    local usb_project_name="$1"
+    local usb_trigger_label="$2"
+    local usb_project_name_upper
+    local usb_sync_dirs_variable_name
+    local usb_sync_entry
+    local usb_entry_source_dir
+    local usb_entry_dest_dir
+    local usb_entry_condition
+    local usb_entry_phase
+    local usb_effective_phase
+    local usb_should_run
+    local usb_log_timestamp
+    local usb_log_warning_shown=false
+    local usb_symlink_count
+    local usb_source_file_path
+    local usb_relative_path
+    local usb_dest_file_path
+    local usb_dest_file_dir
+    local usb_copy_count
+    local usb_error_count
+
+    usb_project_name_upper="${usb_project_name^^}"
+    usb_sync_dirs_variable_name="USB_${usb_project_name_upper}_SYNC_DIRS"
+
+    declare -n usb_sync_dirs_array_ref="$usb_sync_dirs_variable_name"
+
+    for usb_sync_entry in "${usb_sync_dirs_array_ref[@]}"; do
+
+        IFS=: read -r usb_entry_source_dir usb_entry_dest_dir usb_entry_condition usb_entry_phase <<< "$usb_sync_entry"
+
+        if [[ -z "$usb_entry_phase" ]]; then
+            usb_effective_phase="$USB_DEFAULT_PHASE"
+        else
+            usb_effective_phase="$usb_entry_phase"
+        fi
+
+        usb_should_run=false
+        case "${usb_trigger_label}:${usb_effective_phase}" in
+            startup:auto|startup:always)  usb_should_run=true ;;
+            eject:auto|eject:always)      usb_should_run=true ;;
+            sync:manual|sync:always)      usb_should_run=true ;;
+        esac
+
+        if [[ "$usb_should_run" == false ]]; then
+            continue
+        fi
+
+        if [[ ! -d "$usb_entry_source_dir" ]]; then
+            echo "usb[ERROR]: [$usb_project_name] sync_dir source directory does not exist: $usb_entry_source_dir"
+            continue
+        fi
+
+        # Top-level dest_dir must exist -- missing means setup error.
+        # Subdirectories within dest_dir are created as needed.
+        if [[ ! -d "$usb_entry_dest_dir" ]]; then
+            echo "usb[ERROR]: [$usb_project_name] sync_dir dest directory does not exist: $usb_entry_dest_dir"
+            continue
+        fi
+
+        usb_copy_count=0
+        usb_error_count=0
+
+        if [[ "$usb_entry_condition" == "newer" ]]; then
+
+            # Warn about symlinks -- find -type f skips them silently
+            usb_symlink_count=$(find "$usb_entry_source_dir" -type l | wc -l)
+            if [[ "$usb_symlink_count" -gt 0 ]]; then
+                echo "usb[WARN]: [$usb_project_name] sync_dir skipped $usb_symlink_count symlink(s) in $usb_entry_source_dir"
+            fi
+
+            while IFS= read -r usb_source_file_path; do
+                usb_relative_path="${usb_source_file_path#"$usb_entry_source_dir"/}"
+                usb_dest_file_path="${usb_entry_dest_dir}/${usb_relative_path}"
+
+                # Safety: dest path must be under the declared dest_dir
+                if [[ "$usb_dest_file_path" != "$usb_entry_dest_dir"/* ]]; then
+                    echo "usb[ERROR]: [$usb_project_name] sync_dir dest path outside dest_dir: $usb_dest_file_path"
+                    usb_error_count=$((usb_error_count + 1))
+                    continue
+                fi
+
+                # bash -nt returns true when the right-hand file does not exist.
+                # A missing dest file means copy it.
+                if [[ "$usb_source_file_path" -nt "$usb_dest_file_path" ]]; then
+                    usb_dest_file_dir=$(dirname "$usb_dest_file_path")
+                    if [[ ! -d "$usb_dest_file_dir" ]]; then
+                        mkdir -p "$usb_dest_file_dir"
+                    fi
+                    if cp "$usb_source_file_path" "$usb_dest_file_path"; then
+                        usb_copy_count=$((usb_copy_count + 1))
+                    else
+                        echo "usb[ERROR]: [$usb_project_name] sync_dir copy failed: $usb_source_file_path -> $usb_dest_file_path"
+                        usb_error_count=$((usb_error_count + 1))
+                    fi
+                fi
+            done < <(find "$usb_entry_source_dir" -type f)
+        fi
+
+        # Summary log: one line per entry, plus individual errors above
+        if [[ "$usb_copy_count" -gt 0 || "$usb_error_count" -gt 0 ]]; then
+            echo "usb: [$usb_project_name] sync_dir $usb_entry_source_dir -> $usb_entry_dest_dir [$usb_copy_count copied, $usb_error_count errors]"
+            usb_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
+            if [[ -n "$USB_SYNC_LOG" ]]; then
+                echo "$usb_log_timestamp [$usb_project_name] SYNC_DIR $usb_entry_source_dir -> $usb_entry_dest_dir [$usb_copy_count copied, $usb_error_count errors]" >> "$USB_SYNC_LOG"
+            elif [[ "$usb_log_warning_shown" == false ]]; then
+                echo "usb[WARN]: USB_SYNC_LOG is not set, skipping log writes"
+                usb_log_warning_shown=true
+            fi
+        fi
+
+    done
+
+    unset -n usb_sync_dirs_array_ref
+}
+
 # usb_sync -- manually trigger file sync for one or all loaded projects
 # Arguments:
 #   [project_name] -- if omitted, syncs all loaded projects
@@ -432,11 +556,13 @@ usb_sync() {
         fi
 
         _usb_run_sync_files "$usb_sync_target_project" "sync"
+        _usb_run_sync_dirs "$usb_sync_target_project" "sync"
 
     else
 
         for usb_sync_project_name in "${USB_LOADED_PROJECTS[@]}"; do
             _usb_run_sync_files "$usb_sync_project_name" "sync"
+            _usb_run_sync_dirs "$usb_sync_target_project" "sync"
         done
 
     fi
@@ -460,6 +586,7 @@ if [[ "$USB_CONNECTED" != true ]]; then
             unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
             unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
             unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
+            unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
         done
         unset USB_MOUNT_POINT
         unset USB_DRIVE_LETTER
@@ -476,6 +603,7 @@ if [[ "$USB_CONNECTED" != true ]]; then
     fi
     for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         _usb_run_sync_files "$usb_eject_project_name" "eject"
+        _usb_run_sync_dirs "$usb_eject_project_name" "eject"
     done
 
     if [[ "$PWD" == "$USB_MOUNT_POINT"* ]]; then
@@ -521,6 +649,7 @@ if [[ "$USB_CONNECTED" != true ]]; then
         unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
         unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
         unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
+        unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
     done
 
     unset USB_MOUNT_POINT
@@ -592,6 +721,7 @@ if [[ "$USB_CONNECTED" == true ]]; then
     if [[ ${#USB_LOADED_PROJECTS[@]} -gt 0 ]]; then
         for usb_startup_project_name in "${USB_LOADED_PROJECTS[@]}"; do
             _usb_run_sync_files "$usb_startup_project_name" "startup"
+            _usb_run_sync_dirs "$usb_startup_project_name" "startup"
         done
         unset usb_startup_project_name
 
