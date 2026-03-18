@@ -39,6 +39,11 @@
 #
 # =============================================================================
 
+if [[ "${BASH_VERSINFO[0]}" -lt 4 || ( "${BASH_VERSINFO[0]}" -eq 4 && "${BASH_VERSINFO[1]}" -lt 3 ) ]]; then
+    echo "usb[ERROR]: bash 4.3+ required (found ${BASH_VERSION})"
+    return 1 2>/dev/null || exit 1
+fi
+
 USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 if [[ "$USB_INITIALIZED" == true && "$1" != "force" ]]; then
     echo "usb: already initialized (use 'force' to re-run)"
