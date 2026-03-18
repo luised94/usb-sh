@@ -32,6 +32,7 @@
 #   USB_KBD_LOCAL_DIR    -- absolute path to local project directory
 #   USB_KBD_REPO_PATH    -- relative path to bare git repo on USB, metadata only
 #   USB_KBD_SYNC_FILES   -- indexed array of resolved sync_files entries
+#   USB_KBD_SYNC_DIRS    -- indexed array of resolved sync_dirs entries
 #
 # sync_files entry format: src:dest:condition:phase
 #   condition -- "newer" (copy if src is newer than dest)
@@ -181,48 +182,73 @@ if [[ "$USB_CONNECTED" == true ]]; then
             break
         fi
 
-        unset local_dir
-        unset repo_path
-        unset sync_files
-        unset sync_dirs
-
+        usb_parsed_local_dir=""
+        usb_parsed_repo_path=""
+        usb_parsed_sync_files=()
+        usb_parsed_sync_dirs=()
 
         usb_project_name=$(basename "$usb_conf_file_path" .conf)
 
-        # Conf files must use single-line assignments only (no multi-line arrays,
-        # no command substitutions spanning lines). This constraint makes the grep
-        # whitelist validation reliable.
-        if grep -qvE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"; then
-            echo "usb[ERROR]: conf '$usb_project_name' contains unexpected content:"
-            grep -vE '^\s*#|^\s*$|^\s*(local_dir|repo_path|sync_files|sync_dirs)=' "$usb_conf_file_path"
-            continue
-        fi
-        source "$usb_conf_file_path"
-        if [[ -z "$local_dir" ]]; then
+        # Parse conf as plain key-value data. File is not sourced.
+        # Token {HOME} is replaced with the runtime value of $HOME during parsing.
+        # Tokens {USB_ROOT} and {LOCAL_DIR} are resolved after the loop
+        # once local_dir is known.
+        while IFS='=' read -r usb_conf_key usb_conf_value; do
+            if [[ -z "$usb_conf_key" || "$usb_conf_key" == \#* ]]; then
+                continue
+            fi
+            case "$usb_conf_key" in
+                local_dir)
+                    usb_parsed_local_dir="${usb_conf_value//\{HOME\}/$HOME}"
+                    ;;
+                repo_path)
+                    usb_parsed_repo_path="$usb_conf_value"
+                    ;;
+                sync_file)
+                    usb_parsed_sync_files+=("$usb_conf_value")
+                    ;;
+                sync_dir)
+                    usb_parsed_sync_dirs+=("$usb_conf_value")
+                    ;;
+                *)
+                    echo "usb[WARN]: conf '$usb_project_name' unknown key: $usb_conf_key"
+                    ;;
+            esac
+        done < "$usb_conf_file_path"
+
+        if [[ -z "$usb_parsed_local_dir" ]]; then
             echo "usb[ERROR]: conf '$usb_project_name' missing required key: local_dir"
             continue
         fi
-        if [[ -z "$repo_path" ]]; then
+        if [[ -z "$usb_parsed_repo_path" ]]; then
             echo "usb[ERROR]: conf '$usb_project_name' missing required key: repo_path"
             continue
         fi
-        if [[ ! -d "$local_dir" ]]; then
-            echo "usb[WARN]: local_dir for project '$usb_project_name' not found: $local_dir -- skipping"
+        if [[ ! -d "$usb_parsed_local_dir" ]]; then
+            echo "usb[WARN]: local_dir for project '$usb_project_name' not found: $usb_parsed_local_dir -- skipping"
             continue
         fi
 
         usb_project_name_upper="${usb_project_name^^}"
 
+        # Resolve {USB_ROOT} and {LOCAL_DIR} tokens in sync_file entries
         USB_RESOLVED_SYNC_FILES=()
-        for usb_sync_files_entry in "${sync_files[@]}"; do
-            usb_sync_files_entry="${usb_sync_files_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_sync_files_entry="${usb_sync_files_entry//\{LOCAL_DIR\}/$local_dir}"
-            USB_RESOLVED_SYNC_FILES+=("$usb_sync_files_entry")
+        for usb_raw_sync_entry in "${usb_parsed_sync_files[@]}"; do
+            usb_raw_sync_entry="${usb_raw_sync_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_raw_sync_entry="${usb_raw_sync_entry//\{LOCAL_DIR\}/$usb_parsed_local_dir}"
+            USB_RESOLVED_SYNC_FILES+=("$usb_raw_sync_entry")
         done
 
+        # Resolve {USB_ROOT} and {LOCAL_DIR} tokens in sync_dir entries
+        USB_RESOLVED_SYNC_DIRS=()
+        for usb_raw_sync_entry in "${usb_parsed_sync_dirs[@]}"; do
+            usb_raw_sync_entry="${usb_raw_sync_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+            usb_raw_sync_entry="${usb_raw_sync_entry//\{LOCAL_DIR\}/$usb_parsed_local_dir}"
+            USB_RESOLVED_SYNC_DIRS+=("$usb_raw_sync_entry")
+        done
 
-        export "USB_${usb_project_name_upper}_LOCAL_DIR=$local_dir"
-        export "USB_${usb_project_name_upper}_REPO_PATH=$repo_path"
+        export "USB_${usb_project_name_upper}_LOCAL_DIR=$usb_parsed_local_dir"
+        export "USB_${usb_project_name_upper}_REPO_PATH=$usb_parsed_repo_path"
 
         # Bash arrays cannot cross subshell boundaries via export. eval + printf %q
         # builds the assignment string with proper quoting for special characters,
@@ -234,21 +260,33 @@ if [[ "$USB_CONNECTED" == true ]]; then
         usb_sync_files_assignment+=")"
         eval "$usb_sync_files_assignment"
 
-        USB_LOADED_PROJECTS+=("$usb_project_name")
+        usb_sync_dirs_assignment="USB_${usb_project_name_upper}_SYNC_DIRS=("
+        for usb_resolved_sync_dirs_entry in "${USB_RESOLVED_SYNC_DIRS[@]}"; do
+            usb_sync_dirs_assignment+="$(printf '%q' "$usb_resolved_sync_dirs_entry") "
+        done
+        usb_sync_dirs_assignment+=")"
+        eval "$usb_sync_dirs_assignment"
 
+        USB_LOADED_PROJECTS+=("$usb_project_name")
     done
 
-    unset local_dir
-    unset repo_path
-    unset sync_files
-    unset sync_dirs
+
+    unset usb_parsed_local_dir
+    unset usb_parsed_repo_path
+    unset usb_parsed_sync_files
+    unset usb_parsed_sync_dirs
+    unset usb_conf_key
+    unset usb_conf_value
     unset usb_conf_file_path
     unset usb_project_name
     unset usb_project_name_upper
     unset USB_RESOLVED_SYNC_FILES
-    unset usb_sync_files_entry
+    unset USB_RESOLVED_SYNC_DIRS
+    unset usb_raw_sync_entry
     unset usb_sync_files_assignment
+    unset usb_sync_dirs_assignment
     unset usb_resolved_sync_files_entry
+    unset usb_resolved_sync_dirs_entry
 
     echo "usb: loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
 
