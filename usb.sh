@@ -871,6 +871,133 @@ usb_check() {
     fi
 }
 
+# usb_new_project -- create a new project conf via editor
+# Arguments:
+#   project_name -- lowercase, letters/digits/underscores, starts with letter
+# Opens $EDITOR with a scaffold. Validates after editor exits.
+# Atomic move from .tmp to .conf on success.
+usb_new_project() {
+    local usb_new_project_name="$1"
+    local usb_new_project_conf_path
+    local usb_new_project_tmp_path
+    local usb_new_project_editor
+    local usb_new_project_local_dir
+    local usb_new_project_repo_path
+    local usb_new_project_conf_key
+    local usb_new_project_conf_value
+    local usb_new_project_has_local_dir=false
+    local usb_new_project_has_repo_path=false
+
+    if [[ "$USB_CONNECTED" != true ]]; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    if [[ -z "$usb_new_project_name" ]]; then
+        echo "usb[ERROR]: usage: usb_new_project <name>"
+        return 1
+    fi
+
+    # Name becomes part of bash variable names (USB_<NAME>_*).
+    # Must be valid identifier component: lowercase start, alphanumeric + underscore.
+    if [[ ! "$usb_new_project_name" =~ ^[a-z][a-z0-9_]*$ ]]; then
+        echo "usb[ERROR]: project name must start with a lowercase letter and contain only lowercase letters, digits, and underscores"
+        return 1
+    fi
+
+    usb_new_project_conf_path="$USB_MOUNT_POINT/.usb-projects/${usb_new_project_name}.conf"
+
+    if [[ -f "$usb_new_project_conf_path" ]]; then
+        echo "usb[ERROR]: conf already exists: $usb_new_project_conf_path"
+        return 1
+    fi
+
+    usb_new_project_editor="${EDITOR:-vi}"
+    if ! command -v "$usb_new_project_editor" > /dev/null 2>&1; then
+        echo "usb[ERROR]: editor not found: $usb_new_project_editor"
+        echo "usb: set EDITOR to a valid editor"
+        return 1
+    fi
+
+    # Write scaffold to temp file on USB (same filesystem for atomic move)
+    usb_new_project_tmp_path="${usb_new_project_conf_path}.tmp"
+
+    cat > "$usb_new_project_tmp_path" << SCAFFOLD
+# ${usb_new_project_name} project configuration
+#
+# Tokens resolved during loading:
+#   {HOME}      -> user home directory
+#   {USB_ROOT}  -> USB mount point
+#   {LOCAL_DIR} -> resolved local_dir value
+#
+# sync_file format: src:dest:condition:phase
+#   condition: newer (copy if source is newer than dest)
+#   phase: auto | manual | always
+#
+# sync_dir format: src:dest:condition:phase
+#   Same as sync_file but syncs all files in directory recursively.
+
+local_dir={HOME}/personal_repos/${usb_new_project_name}
+repo_path=personal_repos/${usb_new_project_name}.git
+# sync_file={USB_ROOT}/shared/example.txt:{LOCAL_DIR}/example.txt:newer:auto
+# sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto
+SCAFFOLD
+
+    echo "usb: opening editor: $usb_new_project_editor"
+    "$usb_new_project_editor" "$usb_new_project_tmp_path"
+
+    if [[ ! -f "$usb_new_project_tmp_path" ]]; then
+        echo "usb[ERROR]: temp file removed, aborting"
+        return 1
+    fi
+
+    # Validate conf after editor exits
+    while IFS='=' read -r usb_new_project_conf_key usb_new_project_conf_value; do
+        if [[ -z "$usb_new_project_conf_key" || "$usb_new_project_conf_key" == \#* ]]; then
+            continue
+        fi
+        case "$usb_new_project_conf_key" in
+            local_dir)
+                usb_new_project_has_local_dir=true
+                usb_new_project_local_dir="${usb_new_project_conf_value//\{HOME\}/$HOME}"
+                ;;
+            repo_path)
+                usb_new_project_has_repo_path=true
+                usb_new_project_repo_path="$usb_new_project_conf_value"
+                ;;
+            sync_file|sync_dir)
+                ;;
+            *)
+                echo "usb[WARN]: unknown key: $usb_new_project_conf_key"
+                ;;
+        esac
+    done < "$usb_new_project_tmp_path"
+
+    if [[ "$usb_new_project_has_local_dir" == false || "$usb_new_project_has_repo_path" == false ]]; then
+        echo "usb[ERROR]: conf missing required key(s):"
+        if [[ "$usb_new_project_has_local_dir" == false ]]; then
+            echo "usb[ERROR]:   local_dir"
+        fi
+        if [[ "$usb_new_project_has_repo_path" == false ]]; then
+            echo "usb[ERROR]:   repo_path"
+        fi
+        echo "usb: temp file kept at: $usb_new_project_tmp_path"
+        echo "usb: fix and rename manually, or remove and try again"
+        return 1
+    fi
+
+    if [[ ! -d "$usb_new_project_local_dir" ]]; then
+        echo "usb[WARN]: local_dir does not exist: $usb_new_project_local_dir"
+    fi
+    if [[ ! -d "$USB_MOUNT_POINT/$usb_new_project_repo_path" ]]; then
+        echo "usb[WARN]: repo_path does not exist on USB: $usb_new_project_repo_path"
+    fi
+
+    mv "$usb_new_project_tmp_path" "$usb_new_project_conf_path"
+    echo "usb: created $usb_new_project_conf_path"
+    echo "usb: run 'source ~/.config/mc_extensions/usb.sh force' to load"
+}
+
 # =============================================================================
 # SYNC -- Execute sync_files entries for auto and always phases on startup
 # Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
