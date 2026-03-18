@@ -285,19 +285,14 @@ _usb_run_sync_files() {
             usb_effective_phase="$usb_entry_phase"
         fi
 
+
         usb_should_run=false
 
-        if [[ "$usb_trigger_label" == "startup" || "$usb_trigger_label" == "eject" ]]; then
-            if [[ "$usb_effective_phase" == "auto" || "$usb_effective_phase" == "always" ]]; then
-                usb_should_run=true
-            fi
-        fi
-
-        if [[ "$usb_trigger_label" == "sync" ]]; then
-            if [[ "$usb_effective_phase" == "manual" || "$usb_effective_phase" == "always" ]]; then
-                usb_should_run=true
-            fi
-        fi
+        case "${usb_trigger_label}:${usb_effective_phase}" in
+            startup:auto|startup:always)  usb_should_run=true ;;
+            eject:auto|eject:always)      usb_should_run=true ;;
+            sync:manual|sync:always)      usb_should_run=true ;;
+        esac
 
         if [[ "$usb_should_run" == false ]]; then
             continue
