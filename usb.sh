@@ -687,7 +687,10 @@ usb_refresh() {
 usb_status() {
     local usb_status_project_name
     local usb_status_project_name_upper
+    local usb_status_local_dir_variable_name
+    local usb_status_repo_path_variable_name
     local usb_status_sync_files_variable_name
+    local usb_status_sync_dirs_variable_name
     echo "usb: status: connected=$USB_CONNECTED"
     echo "usb: status: environment=$USB_ENV"
     if [[ "$USB_CONNECTED" != true ]]; then
@@ -703,15 +706,30 @@ usb_status() {
     echo "usb: status: sync_log=$USB_SYNC_LOG"
     for usb_status_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         usb_status_project_name_upper="${usb_status_project_name^^}"
+
+        usb_status_local_dir_variable_name="USB_${usb_status_project_name_upper}_LOCAL_DIR"
+        usb_status_repo_path_variable_name="USB_${usb_status_project_name_upper}_REPO_PATH"
         usb_status_sync_files_variable_name="USB_${usb_status_project_name_upper}_SYNC_FILES"
+        usb_status_sync_dirs_variable_name="USB_${usb_status_project_name_upper}_SYNC_DIRS"
+
+        declare -n usb_status_local_dir_ref="$usb_status_local_dir_variable_name"
+        declare -n usb_status_repo_path_ref="$usb_status_repo_path_variable_name"
         declare -n usb_status_sync_files_ref="$usb_status_sync_files_variable_name"
+        declare -n usb_status_sync_dirs_ref="$usb_status_sync_dirs_variable_name"
+
         echo "usb: status: project=$usb_status_project_name"
-        echo "usb: status:   local_dir=$(eval echo "\$USB_${usb_status_project_name_upper}_LOCAL_DIR")"
-        echo "usb: status:   repo_path=$(eval echo "\$USB_${usb_status_project_name_upper}_REPO_PATH")"
+        echo "usb: status:   local_dir=$usb_status_local_dir_ref"
+        echo "usb: status:   repo_path=$usb_status_repo_path_ref"
         echo "usb: status:   sync_files_count=${#usb_status_sync_files_ref[@]}"
+        echo "usb: status:   sync_dirs_count=${#usb_status_sync_dirs_ref[@]}"
+
+        unset -n usb_status_local_dir_ref
+        unset -n usb_status_repo_path_ref
         unset -n usb_status_sync_files_ref
+        unset -n usb_status_sync_dirs_ref
     done
 }
+
 # =============================================================================
 # SYNC -- Execute sync_files entries for auto and always phases on startup
 # Requires: USB_CONNECTED=true, USB_LOADED_PROJECTS non-empty
