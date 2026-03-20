@@ -13,6 +13,35 @@
   shared/                     # Shared files synced between machines
 ```
 
+## Loading Architecture
+
+usb.sh is infrastructure, not an extension. It loads in the numbered
+bash/ startup chain before the extension loop:
+```
+bash/06_usb.sh              -- thin wrapper, sources usb.sh
+bash/99_extensions.sh       -- runs extension loop
+  mc_extensions/kbd.sh      -- reads USB_* variables, does not source usb.sh
+```
+
+Modules do not source usb.sh. They check USB_INITIALIZED at the top
+and degrade gracefully if usb.sh was not loaded:
+```bash
+if [[ "${USB_INITIALIZED:-}" != true ]]; then
+    # warn and set USB_CONNECTED=false
+fi
+MYPROJECT_DIR="${USB_MYPROJECT_LOCAL_DIR:-$HOME/default/path}"
+```
+
+This avoids double-sourcing usb.sh and the "already initialized"
+guard messages that result from multiple source points.
+
+The wrapper (bash/06_usb.sh) handles the case where usb-sh is not
+cloned on a given machine by setting USB_CONNECTED=false. Module
+defensive checks handle the case where the wrapper itself is missing
+or load order changed.
+
+See docs/module-template.sh for the full module integration pattern.
+
 ## Manifest Format
 
 File: `.usb-manifest`. Plain key-value, one per line.

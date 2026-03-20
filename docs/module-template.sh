@@ -11,15 +11,25 @@
 # The project name must match the conf filename on the USB
 # (e.g. myproject.conf -> USB_MYPROJECT_*).
 
-# --- Source guard for usb.sh ---
-# usb.sh sets USB_CONNECTED and USB_MYPROJECT_* variables.
-# If usb.sh is missing, set USB_CONNECTED=false so USB-dependent
-# code can check one variable without caring why USB is unavailable.
-if [[ -f "$HOME/.config/mc_extensions/usb.sh" ]]; then
-    source "$HOME/.config/mc_extensions/usb.sh"
-else
+
+# --- usb.sh integration check ---
+# usb.sh is loaded by infrastructure (bash/06_usb.sh) before extensions.
+# This module does not source usb.sh. It reads variables usb.sh set
+# during shell initialization. If usb.sh has not run, USB features
+# degrade gracefully via variable fallbacks below.
+#
+# This check is a runtime safety net, not dead code. It fires when:
+#   - usb-sh repo is not cloned on this machine
+#   - bash/ chain load order changed and usb.sh loads after extensions
+#   - usb.sh was removed from the infrastructure chain
+# See: ~/personal_repos/usb-sh/docs/usb-setup.md (Loading Architecture)
+if [[ "${USB_INITIALIZED:-}" != true ]]; then
+    if [[ -f "$HOME/personal_repos/usb-sh/usb.sh" ]]; then
+        echo "myproject[WARN]: usb.sh found but not loaded (check bash/ chain load order)"
+    else
+        echo "myproject[WARN]: usb.sh not found, USB features unavailable"
+    fi
     export USB_CONNECTED=false
-    echo "myproject[WARN]: usb.sh not found, USB features unavailable"
 fi
 
 # =============================================================================

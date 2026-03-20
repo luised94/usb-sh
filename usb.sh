@@ -47,7 +47,8 @@ fi
 
 USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 if [[ "$USB_INITIALIZED" == true && "$1" != "force" ]]; then
-    echo "usb: already initialized (use 'force' to re-run)"
+    echo "usb[WARN]: already initialized (connected=$USB_CONNECTED, source=$(caller 0 2>/dev/null || echo unknown))"
+    echo "usb[WARN]: usb.sh should be sourced once from bash/06_usb.sh, use 'force' to re-run"
     return 0
 fi
 
