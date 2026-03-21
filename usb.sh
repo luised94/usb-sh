@@ -563,7 +563,7 @@ usb_sync() {
 
         for usb_sync_project_name in "${USB_LOADED_PROJECTS[@]}"; do
             _usb_run_sync_files "$usb_sync_project_name" "sync"
-            _usb_run_sync_dirs "$usb_sync_target_project" "sync"
+            _usb_run_sync_dirs "$usb_sync_project_name" "sync"
         done
 
     fi
