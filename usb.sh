@@ -996,7 +996,7 @@ SCAFFOLD
 
     mv "$usb_new_project_tmp_path" "$usb_new_project_conf_path"
     echo "usb: created $usb_new_project_conf_path"
-    echo "usb: run 'source ~/.config/mc_extensions/usb.sh force' to load"
+    echo "usb: run 'source ~/personal_repos/usb-sh/usb.sh force' or mc_reload to load"
 }
 
 # =============================================================================
