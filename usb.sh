@@ -296,6 +296,186 @@ fi
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
+# usb_verify_connected -- check USB is still physically connected
+# Returns 0 if connected, 1 if not. Updates USB_CONNECTED on stale state.
+usb_verify_connected() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_verify_connected - check USB is still physically connected
+Usage:
+  usb_verify_connected
+Returns 0 if connected, 1 if not. Updates USB_CONNECTED on stale state.
+EOF
+        return 0
+    fi
+    if [[ "$USB_CONNECTED" != true ]]; then
+        return 1
+    fi
+    if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
+        echo "usb[WARN]: USB appears disconnected (manifest not found)"
+        export USB_CONNECTED=false
+        return 1
+    fi
+    return 0
+}
+
+# usb_push -- push local git repo to USB bare repo
+# Arguments:
+#   project_name -- name of the project as it appears in USB_LOADED_PROJECTS
+# Auto-commits uncommitted changes with standard message. For a meaningful
+# commit message, run git commit manually first. Uses git -C throughout.
+usb_push() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_push - push local git repo to USB bare repo
+Usage:
+  usb_push <project>
+Auto-commits uncommitted changes before pushing.
+For a meaningful commit message, run git commit first.
+EOF
+        return 0
+    fi
+    local usb_push_project_name="$1"
+    local usb_push_project_name_upper
+    local usb_push_local_dir_variable_name
+    local usb_push_repo_path_variable_name
+    local usb_push_project_is_loaded
+    local usb_push_loaded_project_name
+    local usb_push_branch
+    local usb_push_bare_repo_path
+    if [[ -z "$usb_push_project_name" ]]; then
+        echo "usb[ERROR]: usage: usb_push <project>"
+        return 1
+    fi
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+    usb_push_project_is_loaded=false
+    for usb_push_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        if [[ "$usb_push_loaded_project_name" == "$usb_push_project_name" ]]; then
+            usb_push_project_is_loaded=true
+            break
+        fi
+    done
+    if [[ "$usb_push_project_is_loaded" == false ]]; then
+        echo "usb[ERROR]: project '$usb_push_project_name' is not loaded"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        return 1
+    fi
+    usb_push_project_name_upper="${usb_push_project_name^^}"
+    usb_push_local_dir_variable_name="USB_${usb_push_project_name_upper}_LOCAL_DIR"
+    usb_push_repo_path_variable_name="USB_${usb_push_project_name_upper}_REPO_PATH"
+    declare -n usb_push_local_dir_ref="$usb_push_local_dir_variable_name"
+    declare -n usb_push_repo_path_ref="$usb_push_repo_path_variable_name"
+    if [[ ! -d "$usb_push_local_dir_ref/.git" ]]; then
+        echo "usb[ERROR]: $usb_push_local_dir_ref is not a git repo"
+        unset -n usb_push_local_dir_ref
+        unset -n usb_push_repo_path_ref
+        return 1
+    fi
+    usb_push_bare_repo_path="$USB_MOUNT_POINT/$usb_push_repo_path_ref"
+    if [[ ! -d "$usb_push_bare_repo_path" ]]; then
+        echo "usb[ERROR]: bare repo not found on USB: $usb_push_bare_repo_path"
+        unset -n usb_push_local_dir_ref
+        unset -n usb_push_repo_path_ref
+        return 1
+    fi
+    usb_push_branch=$(git -C "$usb_push_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
+    if [[ -z "$usb_push_branch" ]]; then
+        echo "usb[ERROR]: could not detect branch in $usb_push_local_dir_ref (detached HEAD?)"
+        unset -n usb_push_local_dir_ref
+        unset -n usb_push_repo_path_ref
+        return 1
+    fi
+    if [[ -n "$(git -C "$usb_push_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
+        git -C "$usb_push_local_dir_ref" add -A
+        git -C "$usb_push_local_dir_ref" commit -m "$usb_push_project_name: sync $(date +%Y-%m-%d)"
+    fi
+    git -C "$usb_push_local_dir_ref" push "$usb_push_bare_repo_path" "$usb_push_branch"
+    unset -n usb_push_local_dir_ref
+    unset -n usb_push_repo_path_ref
+}
+
+# usb_pull -- pull from USB bare repo to local git repo
+# Arguments:
+#   project_name -- name of the project as it appears in USB_LOADED_PROJECTS
+# Refuses if uncommitted changes exist. Commit or stash manually first.
+# Uses git -C throughout.
+usb_pull() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_pull - pull from USB bare repo to local git repo
+Usage:
+  usb_pull <project>
+Refuses if there are uncommitted changes. Commit or stash first.
+EOF
+        return 0
+    fi
+    local usb_pull_project_name="$1"
+    local usb_pull_project_name_upper
+    local usb_pull_local_dir_variable_name
+    local usb_pull_repo_path_variable_name
+    local usb_pull_project_is_loaded
+    local usb_pull_loaded_project_name
+    local usb_pull_branch
+    local usb_pull_bare_repo_path
+    if [[ -z "$usb_pull_project_name" ]]; then
+        echo "usb[ERROR]: usage: usb_pull <project>"
+        return 1
+    fi
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+    usb_pull_project_is_loaded=false
+    for usb_pull_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        if [[ "$usb_pull_loaded_project_name" == "$usb_pull_project_name" ]]; then
+            usb_pull_project_is_loaded=true
+            break
+        fi
+    done
+    if [[ "$usb_pull_project_is_loaded" == false ]]; then
+        echo "usb[ERROR]: project '$usb_pull_project_name' is not loaded"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        return 1
+    fi
+    usb_pull_project_name_upper="${usb_pull_project_name^^}"
+    usb_pull_local_dir_variable_name="USB_${usb_pull_project_name_upper}_LOCAL_DIR"
+    usb_pull_repo_path_variable_name="USB_${usb_pull_project_name_upper}_REPO_PATH"
+    declare -n usb_pull_local_dir_ref="$usb_pull_local_dir_variable_name"
+    declare -n usb_pull_repo_path_ref="$usb_pull_repo_path_variable_name"
+    if [[ ! -d "$usb_pull_local_dir_ref/.git" ]]; then
+        echo "usb[ERROR]: $usb_pull_local_dir_ref is not a git repo"
+        unset -n usb_pull_local_dir_ref
+        unset -n usb_pull_repo_path_ref
+        return 1
+    fi
+    usb_pull_bare_repo_path="$USB_MOUNT_POINT/$usb_pull_repo_path_ref"
+    if [[ ! -d "$usb_pull_bare_repo_path" ]]; then
+        echo "usb[ERROR]: bare repo not found on USB: $usb_pull_bare_repo_path"
+        unset -n usb_pull_local_dir_ref
+        unset -n usb_pull_repo_path_ref
+        return 1
+    fi
+    if [[ -n "$(git -C "$usb_pull_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
+        echo "usb[ERROR]: uncommitted changes in $usb_pull_local_dir_ref"
+        echo "usb: commit or stash changes before pulling"
+        unset -n usb_pull_local_dir_ref
+        unset -n usb_pull_repo_path_ref
+        return 1
+    fi
+    usb_pull_branch=$(git -C "$usb_pull_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
+    if [[ -z "$usb_pull_branch" ]]; then
+        echo "usb[ERROR]: could not detect branch in $usb_pull_local_dir_ref (detached HEAD?)"
+        unset -n usb_pull_local_dir_ref
+        unset -n usb_pull_repo_path_ref
+        return 1
+    fi
+    git -C "$usb_pull_local_dir_ref" pull "$usb_pull_bare_repo_path" "$usb_pull_branch"
+    unset -n usb_pull_local_dir_ref
+    unset -n usb_pull_repo_path_ref
+}
 
 # _usb_run_sync_files -- execute sync_files entries for a project and trigger
 # Arguments:
@@ -529,14 +709,9 @@ usb_sync() {
     local usb_project_is_loaded
 
 
-    if [[ "$USB_CONNECTED" != true ]]; then
-        echo "usb[ERROR]: USB not connected"
-        return 1
-    fi
 
-    if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
-        echo "usb[ERROR]: USB appears to have been removed (manifest not found at $USB_MOUNT_POINT/$USB_MANIFEST_FILENAME)"
-        export USB_CONNECTED=false
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
         return 1
     fi
 
@@ -576,10 +751,11 @@ usb_eject() {
     local usb_eject_project_name_upper
     local usb_drive_still_present
 
-if [[ "$USB_CONNECTED" != true ]]; then
+    if ! usb_verify_connected; then
         echo "usb: USB is not connected, nothing to eject"
         return 0
     fi
+
     if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
         echo "usb: USB already removed, cleaning up state"
         for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
