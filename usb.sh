@@ -225,8 +225,9 @@ if [[ "$USB_CONNECTED" == true ]]; then
             echo "usb[ERROR]: conf '$usb_project_name' missing required key: repo_path"
             continue
         fi
+
         if [[ ! -d "$usb_parsed_local_dir" ]]; then
-            echo "usb[WARN]: local_dir for project '$usb_project_name' not found: $usb_parsed_local_dir -- skipping"
+            echo "usb[WARN]: project '$usb_project_name' not cloned locally, run usb_clone_all"
             continue
         fi
 
@@ -576,6 +577,92 @@ EOF
     echo "usb: bare repo created at $usb_init_bare_repo_path"
     unset -n usb_init_local_dir_ref
     unset -n usb_init_repo_path_ref
+}
+
+# usb_clone_all -- clone all bare repos from USB to local directories
+# No arguments. For new machine setup.
+# Iterates .usb-projects/*.conf on USB, parses local_dir and repo_path.
+# Skips projects where local_dir already exists or bare repo is missing.
+# Does NOT modify USB_LOADED_PROJECTS or export variables.
+# Run usb_refresh after to reload projects.
+usb_clone_all() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_clone_all - clone all bare repos from USB to local directories
+Usage:
+  usb_clone_all
+For new machine setup. Iterates .usb-projects/*.conf on USB.
+Skips projects where local_dir already exists or bare repo is missing.
+Run usb_refresh after to reload projects.
+EOF
+        return 0
+    fi
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+    local usb_clone_conf_file_path
+    local usb_clone_project_name
+    local usb_clone_local_dir
+    local usb_clone_repo_path
+    local usb_clone_conf_key
+    local usb_clone_conf_value
+    local usb_clone_bare_repo_path
+    local usb_clone_cloned_count=0
+    local usb_clone_skipped_count=0
+    local usb_clone_error_count=0
+    for usb_clone_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
+        if [[ ! -f "$usb_clone_conf_file_path" ]]; then
+            echo "usb: no conf files found"
+            break
+        fi
+        usb_clone_local_dir=""
+        usb_clone_repo_path=""
+        usb_clone_project_name=$(basename "$usb_clone_conf_file_path" .conf)
+        while IFS='=' read -r usb_clone_conf_key usb_clone_conf_value; do
+            if [[ -z "$usb_clone_conf_key" || "$usb_clone_conf_key" == \#* ]]; then
+                continue
+            fi
+            case "$usb_clone_conf_key" in
+                local_dir)
+                    usb_clone_local_dir="${usb_clone_conf_value//\{HOME\}/$HOME}"
+                    ;;
+                repo_path)
+                    usb_clone_repo_path="$usb_clone_conf_value"
+                    ;;
+            esac
+        done < "$usb_clone_conf_file_path"
+        if [[ -z "$usb_clone_local_dir" || -z "$usb_clone_repo_path" ]]; then
+            echo "usb[WARN]: conf '$usb_clone_project_name' missing local_dir or repo_path, skipping"
+            usb_clone_error_count=$((usb_clone_error_count + 1))
+            continue
+        fi
+        if [[ -d "$usb_clone_local_dir" ]]; then
+            echo "usb: [$usb_clone_project_name] local_dir exists, skipping: $usb_clone_local_dir"
+            usb_clone_skipped_count=$((usb_clone_skipped_count + 1))
+            continue
+        fi
+        usb_clone_bare_repo_path="$USB_MOUNT_POINT/$usb_clone_repo_path"
+        if [[ ! -d "$usb_clone_bare_repo_path" ]]; then
+            echo "usb[WARN]: [$usb_clone_project_name] bare repo not found on USB: $usb_clone_bare_repo_path"
+            usb_clone_skipped_count=$((usb_clone_skipped_count + 1))
+            continue
+        fi
+        echo "usb: [$usb_clone_project_name] cloning $usb_clone_bare_repo_path -> $usb_clone_local_dir"
+        if git clone "$usb_clone_bare_repo_path" "$usb_clone_local_dir"; then
+            usb_clone_cloned_count=$((usb_clone_cloned_count + 1))
+            if [[ "$USB_ENV" == "wsl" ]]; then
+                git config --global --add safe.directory "$usb_clone_bare_repo_path"
+            fi
+        else
+            echo "usb[ERROR]: [$usb_clone_project_name] clone failed"
+            usb_clone_error_count=$((usb_clone_error_count + 1))
+        fi
+    done
+    echo "usb: clone_all complete: $usb_clone_cloned_count cloned, $usb_clone_skipped_count skipped, $usb_clone_error_count errors"
+    if [[ "$usb_clone_cloned_count" -gt 0 ]]; then
+        echo "usb: run usb_refresh to reload projects"
+    fi
 }
 
 # _usb_run_sync_files -- execute sync_files entries for a project and trigger
