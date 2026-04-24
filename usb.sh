@@ -892,6 +892,17 @@ _usb_run_sync_dirs() {
 #   [project_name] -- if omitted, syncs all loaded projects
 # Runs phases: manual, always
 usb_sync() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_sync - manually trigger file sync for one or all loaded projects
+Usage:
+  usb_sync              sync all loaded projects
+  usb_sync <project>    sync a specific project
+Runs sync_files and sync_dirs entries with phase: manual, always.
+EOF
+        return 0
+    fi
+
     local usb_sync_target_project="$1"
     local usb_sync_project_name
     local usb_project_is_loaded
@@ -935,6 +946,17 @@ usb_sync() {
 # usb_eject -- pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
 # Runs phases: auto, always (for all loaded projects before unmount)
 usb_eject() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_eject - pre-eject sync, unmount, and clean up state
+Usage:
+  usb_eject
+Syncs all loaded projects (phase: auto, always), unmounts the USB,
+ejects the drive (WSL), and clears all USB variables.
+EOF
+        return 0
+    fi
+
     local usb_eject_project_name
     local usb_eject_project_name_upper
     local usb_drive_still_present
@@ -1033,6 +1055,16 @@ usb_eject() {
 
 # usb_refresh -- re-source usb.sh with force argument to bypass cache
 usb_refresh() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_refresh - re-detect USB and reload all project configurations
+Usage:
+  usb_refresh
+Re-sources usb.sh with force to bypass cache.
+EOF
+        return 0
+    fi
+
     if [[ ! -f "$USB_SCRIPT_PATH" ]]; then
         echo "usb[ERROR]: script not found at $USB_SCRIPT_PATH"
         echo "usb: source usb.sh manually from its location"
@@ -1050,6 +1082,18 @@ usb_refresh() {
 # usb_status -- print diagnostic information about USB state
 # No arguments. Safe to call regardless of connection state.
 usb_status() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_status - print diagnostic information about USB state
+Usage:
+  usb_status
+Shows connection state, mount point, manifest info, and
+per-project details including local_dir, repo_path, and
+sync entry counts.
+EOF
+        return 0
+    fi
+
     local usb_status_project_name
     local usb_status_project_name_upper
     local usb_status_local_dir_variable_name
@@ -1101,6 +1145,18 @@ usb_status() {
 # Re-reads and parses conf files independently (same while-read pattern as
 # LOAD). Reports only -- no copies, no exports, no state changes.
 usb_check() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_check - validate conf files and check referenced paths
+Usage:
+  usb_check
+Re-reads .usb-projects/*.conf on USB. Verifies local_dir,
+repo_path, sync_file sources and destinations, and sync_dir
+sources and destinations all exist. Reports errors.
+EOF
+        return 0
+    fi
+
     local usb_check_conf_file_path
     local usb_check_project_name
     local usb_check_local_dir
@@ -1242,6 +1298,19 @@ usb_check() {
 # Opens $EDITOR with a scaffold. Validates after editor exits.
 # Atomic move from .tmp to .conf on success.
 usb_new_project() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_new_project - create a new project configuration file
+Usage:
+  usb_new_project <name>
+Name must start with a lowercase letter and contain only
+lowercase letters, digits, and underscores. Opens editor
+with a conf scaffold. Validates required keys (local_dir,
+repo_path) after editor exits.
+EOF
+        return 0
+    fi
+
     local usb_new_project_name="$1"
     local usb_new_project_conf_path
     local usb_new_project_tmp_path
@@ -1360,7 +1429,7 @@ SCAFFOLD
 
     mv "$usb_new_project_tmp_path" "$usb_new_project_conf_path"
     echo "usb: created $usb_new_project_conf_path"
-    echo "usb: run 'source ~/personal_repos/usb-sh/usb.sh force' or mc_reload to load"
+    echo "usb: run usb_refresh to load the new project"
 }
 
 # =============================================================================
