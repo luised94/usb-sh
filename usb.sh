@@ -1171,6 +1171,8 @@ EOF
     local usb_check_entry_condition
     local usb_check_entry_phase
     local usb_check_entry_dest_dir
+    local usb_check_local_branch
+    local usb_check_bare_branch
     local usb_check_errors=0
 
     if [[ "$USB_CONNECTED" != true ]]; then
@@ -1239,6 +1241,23 @@ EOF
             else
                 echo "usb: check:   exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
+            fi
+        fi
+
+        if [[ -d "$usb_check_local_dir/.git" && -d "$USB_MOUNT_POINT/$usb_check_repo_path" ]]; then
+            usb_check_local_branch=$(git -C "$usb_check_local_dir" symbolic-ref --short HEAD 2>/dev/null)
+            usb_check_bare_branch=$(git -C "$USB_MOUNT_POINT/$usb_check_repo_path" symbolic-ref --short HEAD 2>/dev/null)
+            if [[ -n "$usb_check_local_branch" && -n "$usb_check_bare_branch" ]]; then
+                if [[ "$usb_check_local_branch" == "$usb_check_bare_branch" ]]; then
+                    echo "usb: check:   branch=$usb_check_local_branch (matches bare repo)"
+                else
+                    echo "usb: check:   branch MISMATCH: local=$usb_check_local_branch bare=$usb_check_bare_branch"
+                    usb_check_errors=$((usb_check_errors + 1))
+                fi
+            elif [[ -z "$usb_check_local_branch" ]]; then
+                echo "usb: check:   WARN could not detect local branch (detached HEAD?)"
+            elif [[ -z "$usb_check_bare_branch" ]]; then
+                echo "usb: check:   WARN could not detect bare repo branch"
             fi
         fi
 
