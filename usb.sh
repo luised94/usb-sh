@@ -95,6 +95,8 @@ if [[ "$USB_ENV" == "wsl" ]]; then
 
     if [[ "$USB_CONNECTED" == false ]]; then
         if command -v powershell.exe > /dev/null 2>&1; then
+            # Intentional quote-break: splicing $USB_MANIFEST_FILENAME into single-quoted PowerShell block
+            # shellcheck disable=SC2016,SC1003
             USB_DETECTED_DRIVE_LETTER=$(powershell.exe -NoProfile -Command '
                 Get-Volume | Where-Object {
                   $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\'"$USB_MANIFEST_FILENAME"'")
@@ -299,6 +301,8 @@ fi
 # =============================================================================
 # usb_verify_connected -- check USB is still physically connected
 # Returns 0 if connected, 1 if not. Updates USB_CONNECTED on stale state.
+# $1 is checked for -h/--help by design; callers are users at the shell, not other functions
+# shellcheck disable=SC2120
 usb_verify_connected() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
@@ -1071,6 +1075,8 @@ EOF
         return 1
     fi
     echo "usb: refreshing from $USB_SCRIPT_PATH..."
+    # USB_SCRIPT_PATH is resolved at runtime; can't be followed statically
+    # shellcheck source=/dev/null
     source "$USB_SCRIPT_PATH" force
     if [[ "$USB_CONNECTED" == true ]]; then
         echo "usb: ready ($USB_ENV, mount: $USB_MOUNT_POINT)"
