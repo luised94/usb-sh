@@ -17,6 +17,7 @@ USB without duplicating infrastructure.
 
 ---
 
+
 ## Ownership Boundary
 
 **usb.sh owns:**
@@ -29,13 +30,14 @@ USB without duplicating infrastructure.
 - Executing `sync_dir` entries (per-file newer check via find)
 - Generic bare-repo git operations (`usb_push`, `usb_pull`, `usb_init_bare`)
 - Health checks (`usb_check`: mount, manifest, confs, remotes, branch consistency)
+- PS1 integration: USB connectivity indicator
 - Eject: pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
 
 **usb.sh does NOT own:**
 
 - Project-specific git operations (commit strategy, add patterns) - project modules do this
 - Multi-hop syncs (e.g. Zotero  USB) - project modules do this
-- Project-specific aliases, functions, or PS1 formatting
+- Project-specific aliases, functions, or prompt customization
 
 ---
 
@@ -77,51 +79,46 @@ Delivery: `~/.config/mc_extensions/usb.sh` symlinks to `~/personal_repos/usb-sh/
 
 ## .usb-manifest Schema
 
-Lives at USB root. Sourced as bash. Two roles: detection marker (its presence identifies a managed USB) and global configuration (settings that apply across all projects).
+Lives at USB root. Parsed as data (while-read loop), not sourced as
+bash. Two roles: detection marker (its presence identifies a managed USB)
+and global configuration (settings that apply across all projects).
 
-```bash
-# .usb-manifest
-USB_MANIFEST_VERSION=1
-USB_LABEL="luised94-usb"
-USB_DEFAULT_PHASE="auto"
-USB_SYNC_LOG=".usb-sync.log"    # path relative to USB root
-```
+.usb-manifest
+VERSION=1
+LABEL=luised94-usb
+DEFAULT_PHASE=auto
+SYNC_LOG=.usb-sync.log
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `USB_MANIFEST_VERSION` | integer | Format version for forward-compat |
-| `USB_LABEL` | string | Human-readable identifier, appears in logs |
-| `USB_DEFAULT_PHASE` | string enum: `auto\|manual\|always` | Fallback phase for sync entries that omit it |
-| `USB_SYNC_LOG` | string, relative path | Log file for sync operations on USB |
+| Key on disk | Exported as | Type | Purpose |
+|-------------|-------------|------|---------|
+| `VERSION` | `USB_MANIFEST_VERSION` | integer | Format version for forward-compat |
+| `LABEL` | `USB_LABEL` | string | Human-readable identifier, appears in logs |
+| `DEFAULT_PHASE` | `USB_DEFAULT_PHASE` | string enum: `auto\|manual\|always` | Fallback phase for sync entries that omit it |
+| `SYNC_LOG` | `USB_SYNC_LOG` | string, relative path | Log file for sync operations on USB |
 
 ---
 
 ## Project Conf Schema
 
-Lives at `.usb-projects/<name>.conf` on USB. Sourced as bash. Restricted vocabulary - only these keys are valid:
+Lives at `.usb-projects/<name>.conf` on USB. Parsed as data (while-read
+loop), not sourced as bash. Plain key-value format with repeated keys for
+multi-value fields. The parser ignores blank lines and lines starting
+with `#`. Unknown keys produce a warning.
 
-```bash
-# .usb-projects/kbd.conf
-local_dir="$HOME/personal_repos/kbd"
-repo_path="personal_repos/kbd.git"
-
-sync_files=(
-    "{USB_ROOT}/shared/kbd_zotero_library.bib:{LOCAL_DIR}/zotero_library.bib:newer:auto"
-)
-
-sync_dirs=()
-```
+.usb-projects/kbd.conf
+local_dir={HOME}/personal_repos/kbd
+repo_path=personal_repos/kbd.git
+sync_file={USB_ROOT}/shared/kbd_zotero_library.bib:{LOCAL_DIR}/zotero_library.bib:newer:auto
+sync_dir=
 
 | Key | Type | Purpose |
 |-----|------|---------|
-| `local_dir` | string, absolute path | Local project root. Validated on load - warn and skip project if missing. |
-| `repo_path` | string, relative to USB root, optional | Bare git repo location. Metadata only - usb.sh does not act on it. Project module reads `USB_<PROJECT>_REPO_PATH` for git operations. |
-| `sync_files` | bash array of strings | File sync entries. Format below. |
-| `sync_dirs` | bash array of strings | Directory sync entries. Placeholder - declared in schema, not processed by usb.sh yet. |
+| `local_dir` | string, path with `{HOME}` token | Local project root. Required. Validated on load - warn and skip if missing. |
+| `repo_path` | string, relative to USB root | Bare git repo location. Required. Used by `usb_push`/`usb_pull`/`usb_init_bare`. |
+| `sync_file` | string, repeated key | File sync entries. One per line, repeat the key. Format below. |
+| `sync_dir` | string, repeated key | Directory sync entries. One per line, repeat the key. Format below. |
 
-No other shell code should appear in conf files. This is convention, not enforcement.
-
-### sync_files Entry Format
+### sync_file Entry Format
 
 ```
 src:dest:condition:phase
@@ -136,28 +133,35 @@ src:dest:condition:phase
 
 Parsed via: `IFS=: read -r src dest condition phase <<< "$entry"`
 
-### sync_dirs Entry Format (placeholder)
+### sync_dir Entry Format
 
-```
-src_dir:dest_dir:method:phase
-```
+src_dir:dest_dir:condition:phase
 
-| Field | Type | Values |
-|-------|------|--------|
-| `src_dir` | string, path | Source directory |
-| `dest_dir` | string, path | Destination directory |
-| `method` | string enum | `update` (rsync, no delete) \| `mirror` (rsync --delete) |
-| `phase` | string enum | `auto\|manual\|always` |
 
-Not implemented. Declared here so the schema is complete and confs can include entries without breaking the parser.
+| Field | Type | Values | Notes |
+|-------|------|--------|-------|
+| `src_dir` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Source directory. Must exist. |
+| `dest_dir` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Destination directory. Top-level must exist (setup error if missing). Subdirectories created as needed. |
+| `condition` | string enum | `newer` | Per-file `-nt` check via `find -type f`. Copies files newer than dest counterpart. Does not delete files missing from source. Symlinks skipped with warning. |
+| `phase` | string enum | `auto\|manual\|always` | When this entry runs. Defaults to `USB_DEFAULT_PHASE` from manifest if omitted. |
+
+Parsed via: `IFS=: read -r src_dir dest_dir condition phase <<< "$entry"`
+
+Path safety: destination file paths are validated to stay within the declared `dest_dir`. Entries that would write outside `dest_dir` are rejected with an error.
 
 ### Token Resolution
 
-After sourcing a conf, usb.sh resolves tokens in all `sync_files` and `sync_dirs` entries:
+Tokens are resolved in two stages during conf parsing:
+
+1. **`{HOME}` in `local_dir`:** resolved immediately when the `local_dir`
+   line is parsed, before any other processing.
+2. **`{USB_ROOT}` and `{LOCAL_DIR}` in sync entries:** resolved after
+   `local_dir` is known, applied to both `sync_file` and `sync_dir`
+   entries using bash parameter expansion:
 
 ```bash
-entry="${entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-entry="${entry//\{LOCAL_DIR\}/$resolved_local_dir}"
+entry="$${entry//\{USB_ROOT\}/$$USB_MOUNT_POINT}"
+entry="$${entry//\{LOCAL_DIR\}/$$usb_parsed_local_dir}"
 ```
 
 Pure bash parameter expansion. No external dependencies.
@@ -246,24 +250,38 @@ Runs only if `USB_CONNECTED=true`.
       populates local variables (`local_dir`, `repo_path`) or accumulates
       into local arrays (`sync_file` entries  array, `sync_dir` entries
        array).
-   c. Validate `local_dir` exists. If not, warn and skip this project.
-   d. Uppercase project name: `proj_upper="${name^^}"`.
-   e. Resolve tokens in each `sync_files` entry.
-   f. Export: `USB_${proj_upper}_LOCAL_DIR`, `USB_${proj_upper}_REPO_PATH`, `USB_${proj_upper}_SYNC_FILES`, `USB_${proj_upper}_SYNC_DIRS`.
-   g. Append project name to `USB_LOADED_PROJECTS`.
+    c. Resolve {HOME} token in local_dir.
+    d. Validate local_dir and repo_path are present. Validate
+        local_dir directory exists. If not, warn and skip this project.
+    e. Uppercase project name: proj_upper="${name^^}".
+    f. Resolve {USB_ROOT} and {LOCAL_DIR} tokens in each sync_file
+    and sync_dir entry.
+    g. Export: USB_${proj_upper}_LOCAL_DIR, USB_${proj_upper}_REPO_PATH,
+    USB_${proj_upper}_SYNC_FILES (array),
+    USB_${proj_upper}_SYNC_DIRS (array).
+    h. Append project name to USB_LOADED_PROJECTS.
+
 5. Report loaded projects.
 
 ### SYNC
 
 Runs only if `USB_CONNECTED=true` and `USB_LOADED_PROJECTS` is non-empty.
 
-1. For each project in `USB_LOADED_PROJECTS`:
-   a. Retrieve that project's `SYNC_FILES` array.
-   b. For each entry, parse `src:dest:condition:phase`.
-   c. If phase is empty, use `USB_DEFAULT_PHASE`.
-   d. If phase is `auto` or `always`, execute the sync.
-   e. Execute: if condition is `newer`, test `[[ "$src" -nt "$dest" ]]`. If true, `cp "$src" "$dest"`.
-   f. Log the operation to `USB_SYNC_LOG` with timestamp, project, src, dest, result.
+For each project in `USB_LOADED_PROJECTS`:
+
+1. Run `_usb_run_sync_files` with trigger `startup`:
+   a. For each `sync_file` entry, parse `src:dest:condition:phase`.
+   b. If phase is empty, use `USB_DEFAULT_PHASE`.
+   c. If phase is `auto` or `always`, execute the sync.
+   d. If condition is `newer`, test `[[ "$src" -nt "$dest" ]]`. If true,
+      `cp "$src" "$dest"`.
+   e. Log the operation to `USB_SYNC_LOG`.
+2. Run `_usb_run_sync_dirs` with trigger `startup`:
+   a. For each `sync_dir` entry, parse `src_dir:dest_dir:condition:phase`.
+   b. Same phase filtering as sync_files.
+   c. If condition is `newer`, walk source tree via `find -type f`, copy
+      files newer than dest counterpart. Create subdirectories as needed.
+   d. Log summary (copied count, error count) to `USB_SYNC_LOG`.
 
 ---
 
@@ -306,10 +324,16 @@ wrappers around `usb_push`/`usb_pull`, and the `-h`/`--help` convention.
 
 ## Deferred Decisions
 
-- **Multiple USB drives.** Single drive assumed. `{USB_ROOT}` tokens keep confs drive-letter-agnostic so adding a second drive is a policy decision, not a structural rewrite.
-- **sync_dirs implementation.** Schema declared, not processed. Implement when a concrete directory sync use case arrives.
-- **Condition types beyond `newer`.** The condition field is extensible. Add `always`, `missing`, `checksum`, etc. as needed.
-- **envsubst for token resolution.** Rejected - pure bash parameter expansion is sufficient and dependency-free.
+- **Multiple USB drives.** Single drive assumed. `{USB_ROOT}` tokens
+  keep confs drive-letter-agnostic so adding a second drive is a policy
+  decision, not a structural rewrite.
+- **Condition types beyond `newer`.** The condition field in both
+  `sync_file` and `sync_dir` entries is extensible. `newer` is the only
+  implemented condition. Add `always`, `missing`, `checksum`, etc. as
+  needed. Mirror-mode for sync_dirs (delete dest files not in source)
+  is tracked in `deferred-and-monitoring.md`.
+- **envsubst for token resolution.** Rejected - pure bash parameter
+  expansion is sufficient and dependency-free.
 
 ---
 
