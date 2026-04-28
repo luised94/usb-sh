@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# usb.sh -- USB detection, project configuration loading, and file synchronization.
+# usb.sh -- USB detection, project configuration, file synchronization, and shared functions.
 # Source this file. Do not execute directly.
-# Projects source usb.sh and compose on top of it.
+# Sourced once by .bashrc. Exports USB_* variables that project modules read.
+# Project modules do not source this file; they are sourced separately by .bashrc.
 # Note: FUNCTIONS section must precede SYNC section because SYNC calls
 # _usb_run_sync_files at source time.
 #
@@ -25,6 +26,7 @@
 #   USB_SYNC_LOG         -- absolute path to sync log file, from .usb-manifest
 #   USB_LOADED_PROJECTS  -- indexed array of loaded project names
 #   USB_DRIVE_LETTER     -- Windows drive letter for WSL eject, set if USB found on WSL
+#   USB_INITIALIZED      -- "true" after successful init, checked by module guards
 #
 # Per-project variables set during LOAD phase.
 # Replace KBD with the uppercased project name (e.g. FINANCES, SM2).
@@ -142,15 +144,12 @@ else
 fi
 
 # =============================================================================
-# LOAD -- Source .usb-manifest and .usb-projects/*.conf
+# LOAD -- Parse .usb-manifest and .usb-projects/*.conf
 # Requires: USB_CONNECTED=true
 # Sets: USB_LABEL, USB_MANIFEST_VERSION, USB_DEFAULT_PHASE, USB_SYNC_LOG,
 #       USB_LOADED_PROJECTS, USB_<PROJECT>_* per loaded project
 # =============================================================================
-
-
 if [[ "$USB_CONNECTED" == true ]]; then
-
 
     # Parse .usb-manifest as plain key-value data. File is not sourced.
     # Expected format: KEY=value, one per line. No quotes or brackets. Comments (#) and blank lines skipped.
