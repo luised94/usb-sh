@@ -1144,6 +1144,17 @@ EOF
     done
 }
 
+# usb_ps1_indicator -- PS1 rendering helper for USB connectivity
+# Returns "usb[O]" when connected, "usb[ ]" when not.
+# Called via $() substitution in prompt string, not a user command.
+# No -h support: runs on every prompt render, must be zero-overhead.
+usb_ps1_indicator() {
+    if [[ "$USB_CONNECTED" == true ]]; then
+        echo "usb[O]"
+    else
+        echo "usb[ ]"
+    fi
+}
 
 # usb_check -- validate conf files and check that all referenced paths exist
 # No arguments. Requires USB_CONNECTED=true.
@@ -1471,5 +1482,18 @@ if [[ "$USB_CONNECTED" == true ]]; then
 
     fi
 fi
+
+# =============================================================================
+# PS1 -- USB connectivity indicator in prompt
+# MC_PS1 is the composable prompt variable used by the bash/ infrastructure.
+# The contains-check prevents duplicate prepending on usb_refresh.
+# =============================================================================
+if [[ -z "$MC_PS1" ]]; then
+    MC_PS1='\u@\h:\w\$ '
+fi
+if [[ "$MC_PS1" != *'usb_ps1_indicator'* ]]; then
+    MC_PS1='$(usb_ps1_indicator)'"${MC_PS1}"
+fi
+export PS1="$MC_PS1"
 
 USB_INITIALIZED=true

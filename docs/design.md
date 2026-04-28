@@ -391,6 +391,17 @@ does not use cached variables). Checks performed per project:
 
 Reports all issues. Returns non-zero if any check fails.
 
+### `usb_ps1_indicator`
+
+PS1 rendering helper. Returns `usb[O]` when USB is connected, `usb[ ]`
+when not. Called via `$()` substitution in the prompt string - not a
+user command. Does not support `-h` (runs on every prompt render and
+must be zero-overhead).
+
+usb.sh integrates this into the prompt via `MC_PS1` at the end of
+startup. The contains-check prevents duplicate prepending on
+`usb_refresh`.
+
 ### `usb_new_project <name>`
 
 Create new project conf via editor. Name must be a valid bash identifier
