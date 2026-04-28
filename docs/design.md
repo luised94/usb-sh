@@ -125,36 +125,31 @@ sync_dir=
 | `sync_file` | string, repeated key | File sync entries. One per line, repeat the key. Format below. |
 | `sync_dir` | string, repeated key | Directory sync entries. One per line, repeat the key. Format below. |
 
-### sync_file Entry Format
 
-```
-src:dest:condition:phase
-```
+### Sync Entry Format
 
-| Field | Type | Values | Notes |
-|-------|------|--------|-------|
-| `src` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Source file path |
-| `dest` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Destination file path |
-| `condition` | string enum | `newer` | `newer`  bash `-nt` test: copy only if src is newer than dest. Extensible - add conditions as needed. |
-| `phase` | string enum | `auto\|manual\|always` | When this entry runs. Defaults to `USB_DEFAULT_PHASE` from manifest if omitted. |
+Both `sync_file` and `sync_dir` entries use the same four-field format:
 
-Parsed via: `IFS=: read -r src dest condition phase <<< "$entry"`
-
-### sync_dir Entry Format
-
-src_dir:dest_dir:condition:phase
-
+source:destination:condition:phase
 
 | Field | Type | Values | Notes |
 |-------|------|--------|-------|
-| `src_dir` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Source directory. Must exist. |
-| `dest_dir` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | Destination directory. Top-level must exist (setup error if missing). Subdirectories created as needed. |
-| `condition` | string enum | `newer` | Per-file `-nt` check via `find -type f`. Copies files newer than dest counterpart. Does not delete files missing from source. Symlinks skipped with warning. |
+| `source` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | File path or directory path |
+| `destination` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | File path or directory path |
+| `condition` | string enum | `newer` | How to decide whether to copy. Extensible - add conditions as needed. |
 | `phase` | string enum | `auto\|manual\|always` | When this entry runs. Defaults to `USB_DEFAULT_PHASE` from manifest if omitted. |
 
-Parsed via: `IFS=: read -r src_dir dest_dir condition phase <<< "$entry"`
+Parsed via: `IFS=: read -r source destination condition phase <<< "$entry"`
 
-Path safety: destination file paths are validated to stay within the declared `dest_dir`. Entries that would write outside `dest_dir` are rejected with an error.
+**sync_file** (`newer` condition): copy if source file is newer than
+destination (bash `-nt` test). Destination directory must exist.
+
+**sync_dir** (`newer` condition): walk source tree via `find -type f`.
+For each file, copy if newer than its destination counterpart. Top-level
+destination directory must exist (setup error if missing). Subdirectories
+within destination created as needed. Symlinks skipped with warning.
+Destination paths validated to stay within the declared destination
+directory.
 
 ### Token Resolution
 
