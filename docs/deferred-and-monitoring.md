@@ -10,12 +10,13 @@ Update inline as items resolve or new friction surfaces.
 Items decided but not yet implemented. Each has a trigger condition
 for when to pick it up.
 
-### -h flag for all usb_ functions
-**Status:** deferred
-**Scope:** small (one commit)
-**Functions:** usb_sync, usb_eject, usb_check, usb_new_project, usb_status, usb_refresh
-**Pattern:** `if [[ "$1" == "-h" || "$1" == "--help" ]]; then echo "usage: ..."; return 0; fi`
-**Trigger:** next time you forget a function's arguments and have to read the source
+### Branch rename procedure automation
+- **Status:** Deferred
+- **Description:** Branch renames require a manual multi-step procedure
+  (local rename, bare repo HEAD update, tracking reference update).
+  A usb_rename_branch function could automate this.
+- **Trigger:** Second time a manual branch rename is performed.
+- **Notes:** First instance was the kbd main/master rename.
 
 ### Dry-run flag for usb_sync
 **Status:** deferred from Phase 8
@@ -62,45 +63,27 @@ for when to pick it up.
 
 ---
 
-## Things to Monitor (first 2 weeks)
+## Things to Monitor
 
 Track these during daily use. Note observations in the friction log
 or inline below.
 
-### Phase assignments
-**Question:** are your sync entries on the right phase?
-**Watch for:** entries on `auto` that you wish were `manual` (syncing too often, slow startup). Entries on `manual` that you keep forgetting to trigger.
-**Log format:** `[date] sync_file X: wanted phase Y, had phase Z`
+> **Observation period complete (5+ weeks).** Main friction was standardizing
+> the USB for multiple repos and remembering how to start new projects.
+> Startup time and daily workflow are fine. Items marked [closed] below.
 
-### usb_check usefulness
-**Question:** does usb_check give you enough to debug setup problems?
-**Watch for:** times you run usb_check then immediately do manual `ls`, `cat`, or `find` to get info usb_check didn't show. That's a signal usb_check needs more output.
-**Log format:** `[date] usb_check missed: needed to manually check X`
-
-### sync_dirs logging verbosity
-**Question:** is the summary-only log line enough?
-**Watch for:** times you need to know which specific files were copied and have to dig through timestamps or check manually. If this happens more than twice, add a verbose flag.
-**Log format:** `[date] sync_dirs: needed per-file detail for X`
-
-### usb_new_project scaffold
-**Question:** are the defaults and template comments useful?
-**Watch for:** how much you edit after the scaffold opens. If you change the same things every time (different base path, different repo structure), update the defaults.
-**Log format:** `[date] usb_new_project: changed X from default`
-
-### Push/pull boilerplate
-**Question:** should git push/pull be in usb.sh itself?
-**Watch for:** writing the same `git push "$USB_MOUNT_POINT/$USB_*_REPO_PATH" master` pattern in multiple modules. If three modules have it, extract to `usb_push <project>` and `usb_pull <project>`.
-**Log format:** `[date] wrote git push/pull boilerplate in X module`
-
-### Sync direction
-**Question:** do you need local-to-USB sync?
-**Watch for:** currently all sync entries go USB -> local. If you find yourself manually copying files from local to USB, that's a signal for bidirectional support or a reverse sync_file entry.
-**Log format:** `[date] manually copied local -> USB: file X`
-
-### Startup time
-**Question:** does usb.sh add noticeable delay to shell startup?
-**Watch for:** perceptible lag when opening a new terminal. The powershell.exe call for USB detection on WSL is the slowest part. Cache should mitigate. If startup feels slow, time it: `time source ~/.config/mc_extensions/usb.sh force`
-**Log format:** `[date] startup felt slow, measured Xms`
+- **Phase assignments** - No friction observed in 5+ weeks. [closed]
+- **usb_check usefulness** - Validated. Branch consistency check was added
+  in response to the kbd rename issue. [closed]
+- **sync_dirs logging verbosity** - No sync_dir entries in active use yet.
+  _usb_run_sync_dirs implemented with per-entry summary logging. [open -
+  evaluate when first sync_dir is actively used]
+- **usb_new_project scaffold** - Used once (finances). User reports
+  forgetting how to start new projects, confirming the scaffold's value.
+  -h flag and README quick reference now improve discoverability. [closed]
+- **Sync direction** - No local-to-USB sync friction reported. [closed]
+- **Startup time** - No perceived lag. [closed]
+- **Push/pull boilerplate** - Resolved. See Resolution Log. [closed]
 
 ---
 
@@ -134,9 +117,20 @@ If debugging is hard after a change: consider adding a `usb_version` or `usb_deb
 ---
 
 ## Resolution Log
+### -h flag for all usb_ functions
+- **Original status:** Deferred
+- **Resolved:** Implemented in usb.sh. Every public function
+  (usb_verify_connected, usb_push, usb_pull, usb_init_bare, usb_clone_all,
+  usb_sync, usb_eject, usb_refresh, usb_status, usb_check, usb_new_project)
+  supports -h/--help.
 
-Record when deferred items get implemented or deliberately dropped.
+### Document loading architecture in usb-setup.md
+- **Original status:** Deferred
+- **Resolved:** usb-setup.md has a "Loading Architecture" section covering the
+  .bashrc -> usb.sh -> module chain, why modules don't source usb.sh, and the
+  USB_INITIALIZED guard pattern.
 
-| Date | Item | Action | Notes |
-|------|------|--------|-------|
-|      |      |        |       |
+### Push/pull boilerplate centralization
+- **Original status:** Monitoring item
+- **Resolved:** Implemented as usb_push and usb_pull in usb.sh. Module
+  template updated to use these instead of raw git commands.
