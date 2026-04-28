@@ -1,3 +1,5 @@
+# USB drive manifest -- parsed by usb.sh LOAD section
+# Format: KEY=value, one per line. Comments (#) and blank lines skipped.
 VERSION=1
 LABEL=luised94-usb
 SYNC_LOG=.usb-sync.log

@@ -1,18 +1,3 @@
-# finances project configuration
-#
-# Tokens resolved during loading:
-#   {HOME}      -> user home directory
-#   {USB_ROOT}  -> USB mount point
-#   {LOCAL_DIR} -> resolved local_dir value
-#
-# sync_file format: src:dest:condition:phase
-#   condition: newer (copy if source is newer than dest)
-#   phase: auto | manual | always
-#
-# sync_dir format: src:dest:condition:phase
-#   Same as sync_file but syncs all files in directory recursively.
-
+# finance - personal finances
 local_dir={HOME}/personal_repos/finances
 repo_path=personal_repos/finances.git
-# sync_file={USB_ROOT}/shared/example.txt:{LOCAL_DIR}/example.txt:newer:auto
-# sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto

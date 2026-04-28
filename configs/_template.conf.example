@@ -1,0 +1,30 @@
+# Project configuration template
+# Copy to .usb-projects/<project_name>.conf and fill in values.
+#
+# Setup in nvim:
+#   :%s/PROJECTNAME/yourproject/g
+#   dgg  (cursor on this line to delete instructions above)
+#   Add one-line summary: # yourproject - brief description
+#
+# Result should look like:
+#   # yourproject - brief description
+#   local_dir={HOME}/personal_repos/yourproject
+#   repo_path=personal_repos/yourproject.git
+#
+# Parser ignores comment (#) and blank lines. Only key=value lines matter.
+# Required keys: local_dir, repo_path
+# Optional keys: sync_file, sync_dir (repeatable, add as many as needed)
+#
+# Tokens resolved at load time:
+#   {HOME}      -> user home directory
+#   {USB_ROOT}  -> USB mount point
+#   {LOCAL_DIR} -> resolved local_dir value
+#
+# sync_file and sync_dir format: src:dest:condition:phase
+#   condition: newer (copy if source is newer than dest)
+#   phase: auto | manual | always (defaults to DEFAULT_PHASE from manifest)
+#
+local_dir={HOME}/personal_repos/PROJECTNAME
+repo_path=personal_repos/PROJECTNAME.git
+# sync_file={USB_ROOT}/shared/example.txt:{LOCAL_DIR}/example.txt:newer:auto
+# sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto
