@@ -1,28 +1,41 @@
 # usb.sh - Design Document
 
+
 ## Purpose
 
-A reusable shell module that manages USB detection, project configuration loading, and file synchronization. It knows nothing about any specific project (kbd, finances, SM2, etc.). Projects source `usb.sh` and compose on top of it.
+A reusable shell module that manages USB detection, project configuration
+loading, file synchronization, and shared git operations. It knows nothing
+about any specific project (kbd, finances, SM2, etc.).
 
-Extracted from `kbd.sh` to support multiple projects sharing a single USB without duplicating infrastructure.
+usb.sh is sourced once by `.bashrc`. It exports `USB_*` variables into
+the shell environment. Project modules (kbd.sh, finances.sh, etc.) are
+sourced separately by `.bashrc` after usb.sh and read those exported
+variables - they do not source usb.sh themselves.
+
+Extracted from `kbd.sh` to support multiple projects sharing a single
+USB without duplicating infrastructure.
 
 ---
 
 ## Ownership Boundary
 
 **usb.sh owns:**
+
 - USB hardware detection (WSL fast/slow path, Linux scan)
-- Sourcing `.usb-manifest` and `.usb-projects/*.conf`
+- Parsing `.usb-manifest` and `.usb-projects/*.conf` (as data, not sourced as bash)
 - Token resolution in conf entries
 - Exporting project metadata into `USB_<PROJECT>_*` namespace
-- Executing `sync_files` entries (condition-gated `cp`)
+- Executing `sync_file` entries (condition-gated `cp`)
+- Executing `sync_dir` entries (per-file newer check via find)
+- Generic bare-repo git operations (`usb_push`, `usb_pull`, `usb_init_bare`)
+- Health checks (`usb_check`: mount, manifest, confs, remotes, branch consistency)
 - Eject: pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
 
 **usb.sh does NOT own:**
-- Git operations (push, pull, commit) - project modules do this
+
+- Project-specific git operations (commit strategy, add patterns) - project modules do this
 - Multi-hop syncs (e.g. Zotero  USB) - project modules do this
 - Project-specific aliases, functions, or PS1 formatting
-- Directory sync execution - declared in schema, not implemented yet
 
 ---
 
@@ -30,12 +43,12 @@ Extracted from `kbd.sh` to support multiple projects sharing a single USB withou
 
 ```
 USB_ROOT/
-ÃÄÄ .usb-manifest                  # detection marker + global config
-ÃÄÄ .usb-projects/                 # per-project conf files
-³   ÃÄÄ kbd.conf
+|-- .usb-manifest                  # detection marker + global config
+|-- .usb-projects/                 # per-project conf files
+³   |-- kbd.conf
 ³   ÀÄÄ finances.conf
-ÃÄÄ personal_repos/                # bare git repos
-³   ÃÄÄ kbd.git
+|-- personal_repos/                # bare git repos
+³   |-- kbd.git
 ³   ÀÄÄ finances.git
 ÀÄÄ shared/                        # cross-project artifacts, non-git
     ÀÄÄ kbd_zotero_library.bib
@@ -51,11 +64,11 @@ USB_ROOT/
 
 ```
 ~/personal_repos/usb-sh/
-ÃÄÄ usb.sh
-ÃÄÄ README.md
-ÀÄÄ docs/
-    ÃÄÄ design.md          # this document
-    ÀÄÄ usb-setup.md       # reference copies of manifest + confs
+|-- usb.sh
+|-- README.md
+|-- docs/
+    |-- design.md          # this document
+    |-- usb-setup.md       # reference copies of manifest + confs
 ```
 
 Delivery: `~/.config/mc_extensions/usb.sh` symlinks to `~/personal_repos/usb-sh/usb.sh`. The mc_extensions directory is managed by the user's config repo, designed to be extensible via symlinks.
@@ -203,7 +216,11 @@ Three phases govern when sync entries execute:
 
 ## Startup Procedure
 
-Linear, not wrapped in functions. Three phases delimited by comments.
+
+Linear, not wrapped in functions. Four sections delimited by comments.
+Section order is FIND  LOAD  FUNCTIONS  SYNC. FUNCTIONS must precede
+SYNC because the SYNC section calls `_usb_run_sync_files` at source time -
+bash requires a function to be defined before the line that calls it.
 
 ### FIND
 
@@ -218,12 +235,17 @@ Linear, not wrapped in functions. Three phases delimited by comments.
 
 Runs only if `USB_CONNECTED=true`.
 
-1. Source `.usb-manifest` from `$USB_MOUNT_POINT/.usb-manifest`. Exports global config variables.
+1. Parse `.usb-manifest` from `$USB_MOUNT_POINT/.usb-manifest` using a
+   while-read loop. Each `key=value` line is read; keys are mapped to
+   `USB_*` global variables (e.g. `VERSION`  `USB_MANIFEST_VERSION`).
 2. Resolve `USB_SYNC_LOG` to absolute path: `$USB_MOUNT_POINT/$USB_SYNC_LOG`.
 3. Initialize `USB_LOADED_PROJECTS=()`.
 4. For each `.conf` file in `$USB_MOUNT_POINT/.usb-projects/`:
    a. Extract project name from filename (strip path and `.conf` suffix).
-   b. Source the conf file (sets `local_dir`, `repo_path`, `sync_files`, `sync_dirs` as local variables).
+   b. Parse the conf file using a while-read loop. Each `key=value` line
+      populates local variables (`local_dir`, `repo_path`) or accumulates
+      into local arrays (`sync_file` entries  array, `sync_dir` entries
+       array).
    c. Validate `local_dir` exists. If not, warn and skip this project.
    d. Uppercase project name: `proj_upper="${name^^}"`.
    e. Resolve tokens in each `sync_files` entry.
@@ -264,43 +286,21 @@ For each matching project, run `sync_files` entries where phase is `manual` or `
 
 ---
 
-## How kbd.sh Changes Post-Refactor
+## Module Integration
 
-```bash
-source "$HOME/.config/mc_extensions/usb.sh"
+Project modules (kbd.sh, finances.sh, etc.) integrate with usb.sh by
+reading the exported `USB_*` variables. They do NOT source usb.sh - they
+are sourced separately by `.bashrc` after usb.sh has run.
 
-KBD_DIR="${USB_KBD_LOCAL_DIR:-$HOME/personal_repos/kbd}"
+The module guard checks `USB_INITIALIZED` and degrades gracefully if
+usb.sh has not run - local features (aliases, navigation, project-specific
+scripts) remain available regardless of USB state. Only USB operations
+(push, pull, sync) require `USB_CONNECTED=true`, and those checks happen
+inside the `usb_` functions themselves.
 
-# Aliases - always available
-alias kj='nvim "$KBD_DIR/journal.txt"'
-# ...etc
-
-# ksync: git ops + file sync
-ksync() {
-    # git add/commit/push (kbd-specific logic)
-    usb_sync kbd
-}
-
-# kpull: git pull + file sync
-kpull() {
-    # git pull (kbd-specific logic)
-    usb_sync kbd
-}
-
-# kbib_sync: Zotero  USB (three-hop first leg, kbd-specific)
-kbib_sync() {
-    local src="/mnt/c/Users/${MC_WINDOWS_USER:-Luised94}/Zotero/zotero_library.bib"
-    local dest="$USB_MOUNT_POINT/shared/kbd_zotero_library.bib"
-    [[ "$src" -nt "$dest" ]] && cp "$src" "$dest"
-}
-
-# PS1: reads USB_CONNECTED, formats kbd-specific
-kbd_origin_indicator() {
-    [[ "$USB_CONNECTED" == true ]] && echo "kbd[O]" || echo "kbd[ ]"
-}
-```
-
-Git remote validation, commit strategy, and all git operations stay in kbd.sh. `kusboff` is replaced by `usb_eject` (or aliased if preferred).
+See `docs/module-template.sh` for the canonical integration pattern,
+including the guard, directory fallback, alias definitions, function
+wrappers around `usb_push`/`usb_pull`, and the `-h`/`--help` convention.
 
 ---
 
