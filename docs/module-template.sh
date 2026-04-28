@@ -1,19 +1,21 @@
-#!/bin/bash
-# myproject.sh - shell tooling for myproject
-# Source this file or place in mc_extensions directory.
+# module-template.sh - Template for new usb.sh project modules
 #
-# Integration with usb.sh:
-#   This module sources usb.sh and composes on top of it.
-#   If usb.sh is not found, USB features are unavailable but
-#   local functionality still works.
+# Usage: Copy this file, rename to <project>.sh, and customize.
 #
-# Replace "myproject" / "MYPROJECT" throughout with your project name.
-# The project name must match the conf filename on the USB
-# (e.g. myproject.conf -> USB_MYPROJECT_*).
-
+# Loading: .bashrc sources usb.sh first (exports USB_* variables),
+# then sources this module. This file does NOT source usb.sh.
+#
+# Design: The module always loads. Local features (aliases, directory
+# navigation, project-specific scripts) work regardless of USB state.
+# Only USB operations (push, pull, sync) require USB_CONNECTED=true,
+# and those checks happen inside the usb_ functions themselves.
+#
+# Replace all instances of:
+#   TEMPLATE / template  ->  your project's uppercase / lowercase name
+#   e.g., KBD / kbd, FINANCES / finances
 
 # --- usb.sh integration check ---
-# usb.sh is loaded by infrastructure (bash/06_usb.sh) before extensions.
+# usb.sh is loaded by infrastructure before extensions.
 # This module does not source usb.sh. It reads variables usb.sh set
 # during shell initialization. If usb.sh has not run, USB features
 # degrade gracefully via variable fallbacks below.
@@ -25,104 +27,65 @@
 # See: ~/personal_repos/usb-sh/docs/usb-setup.md (Loading Architecture)
 if [[ "${USB_INITIALIZED:-}" != true ]]; then
     if [[ -f "$HOME/personal_repos/usb-sh/usb.sh" ]]; then
-        echo "myproject[WARN]: usb.sh found but not loaded (check bash/ chain load order)"
+        echo "template[WARN]: usb.sh found but not loaded (check bash/ chain load order)"
     else
-        echo "myproject[WARN]: usb.sh not found, USB features unavailable"
+        echo "template[WARN]: usb.sh not found, USB features unavailable"
     fi
     export USB_CONNECTED=false
 fi
 
-# =============================================================================
-# SECTION 1: LOCAL CONFIGURATION (always available, no USB dependency)
-# =============================================================================
-# Everything in this section uses MYPROJECT_DIR. It works whether
-# USB is connected or not.
+# --- directory ---
+# Fallback ensures aliases and local functions work even without USB.
+TEMPLATE_DIR="${USB_TEMPLATE_LOCAL_DIR:-$HOME/personal_repos/template}"
 
-# Local directory with USB fallback. If USB is connected and the project
-# conf loaded, USB_MYPROJECT_LOCAL_DIR is set by usb.sh. Otherwise
-# fall back to a hardcoded default. This single variable is the root
-# for all local paths -- aliases, functions, and USB operations all
-# reference it.
-MYPROJECT_DIR="${USB_MYPROJECT_LOCAL_DIR:-$HOME/personal_repos/myproject}"
+# --- aliases ---
+# These work regardless of USB connection.
+# alias tj='nvim "$TEMPLATE_DIR/journal.txt"'
+# alias td='cd "$TEMPLATE_DIR"'
 
-# Local aliases -- always available
-alias mpcd='cd "$MYPROJECT_DIR"'
-alias mpst='cd "$MYPROJECT_DIR" && git status && cd - > /dev/null'
+# --- functions ---
 
-# Local functions -- always available
-# myproject_example() {
-#     "${EDITOR:-nvim}" "$MYPROJECT_DIR/somefile.txt"
-# }
+# Push local commits to USB bare repo.
+template_push() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: template_push"
+        echo "Push current branch to USB bare repo for template project."
+        return 0
+    fi
+    usb_push template
+}
 
-# =============================================================================
-# SECTION 2: USB OPERATIONS (requires USB_CONNECTED=true)
-# =============================================================================
-# Every function in this section must check USB_CONNECTED before
-# doing USB-dependent work. These functions read USB_MOUNT_POINT
-# and USB_MYPROJECT_REPO_PATH from usb.sh.
+# Pull from USB bare repo to local.
+template_pull() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: template_pull"
+        echo "Pull current branch from USB bare repo for template project."
+        return 0
+    fi
+    usb_pull template
+}
+
+# Run manual-phase sync entries.
+template_sync() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: template_sync"
+        echo "Run manual-phase file sync entries for template project."
+        return 0
+    fi
+    usb_sync template
+}
+
+# --- project-specific ---
+# Add functions here that usb.sh does not own.
+# Examples: multi-hop file syncs, custom commit strategies, export scripts.
 #
-# Common pattern:
-#   if [[ "$USB_CONNECTED" != true ]]; then
-#       echo "myproject[ERROR]: USB not connected"
-#       return 1
-#   fi
-
-# Example: pull from USB bare repo and sync
-# myproject_pull() {
-#     if [[ "$USB_CONNECTED" != true ]]; then
-#         echo "myproject[ERROR]: USB not connected"
-#         return 1
+# template_export() {
+#     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+#         echo "Usage: template_export"
+#         echo "Copy data from external source to USB shared directory."
+#         return 0
 #     fi
-#     if [[ ! -d "$MYPROJECT_DIR/.git" ]]; then
-#         echo "myproject[ERROR]: $MYPROJECT_DIR is not a git repository"
-#         return 1
-#     fi
-#     cd "$MYPROJECT_DIR" || return 1
-#     git pull "$USB_MOUNT_POINT/$USB_MYPROJECT_REPO_PATH" master
-#     usb_sync myproject
-#     cd - > /dev/null
+#     local src="/mnt/c/Users/${MC_WINDOWS_USER}/SomeApp/output.dat"
+#     local dest="$USB_MOUNT_POINT/shared/template_output.dat"
+#     [[ -f "$src" ]] && [[ "$src" -nt "$dest" ]] && cp "$src" "$dest"
 # }
-
-# Example: commit and push to USB bare repo
-# myproject_push() {
-#     if [[ "$USB_CONNECTED" != true ]]; then
-#         echo "myproject[ERROR]: USB not connected"
-#         return 1
-#     fi
-#     if [[ ! -d "$MYPROJECT_DIR/.git" ]]; then
-#         echo "myproject[ERROR]: $MYPROJECT_DIR is not a git repository"
-#         return 1
-#     fi
-#     cd "$MYPROJECT_DIR" || return 1
-#     git add -A
-#     if git diff --cached --quiet; then
-#         echo "myproject: nothing to commit"
-#     else
-#         git commit
-#     fi
-#     git push "$USB_MOUNT_POINT/$USB_MYPROJECT_REPO_PATH" master
-#     usb_sync myproject
-#     cd - > /dev/null
-# }
-
-# =============================================================================
-# SECTION 3: SHELL INTERFACE (PS1 modification, optional)
-# =============================================================================
-# Indicator shows USB connection state in the prompt.
-# Follows the same pattern as kbd.sh -- appends to MC_PS1 once.
-
-# myproject_indicator() {
-#     if [[ "$USB_CONNECTED" == true ]]; then
-#         echo "mp[O]"
-#     else
-#         echo "mp[ ]"
-#     fi
-# }
-#
-# if [[ -z "$MC_PS1" ]]; then
-#     MC_PS1='\u@\h:\w\$ '
-# fi
-# if [[ "$MC_PS1" != *'myproject_indicator'* ]]; then
-#     MC_PS1='$(myproject_indicator)'"${MC_PS1}"
-# fi
-# export PS1="$MC_PS1"
