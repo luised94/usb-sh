@@ -62,6 +62,7 @@ USB_ROOT/
 
 ---
 
+
 ## Local File Structure
 
 ```
@@ -69,8 +70,14 @@ USB_ROOT/
 |-- usb.sh
 |-- README.md
 |-- docs/
-    |-- design.md          # this document
-    |-- usb-setup.md       # reference copies of manifest + confs
+|   |-- design.md                    # this document
+|   |-- usb-setup.md                 # operational reference
+|   |-- module-template.sh           # integration template for new modules
+|   |-- implementation-plan.md       # historical: original build plan
+|   \-- deferred-and-monitoring.md   # active: deferred items, monitoring
+\-- configs/
+    |-- kbd.conf.reference           # reference copy of kbd conf
+    \-- finances.conf.reference      # reference copy of finances conf
 ```
 
 Delivery: `~/.config/mc_extensions/usb.sh` symlinks to `~/personal_repos/usb-sh/usb.sh`. The mc_extensions directory is managed by the user's config repo, designed to be extensible via symlinks.
@@ -174,14 +181,23 @@ Pure bash parameter expansion. No external dependencies.
 
 | Variable | Type | Set When |
 |----------|------|----------|
+| `USB_SCRIPT_PATH` | string, absolute path | Always (source time) |
 | `USB_CONNECTED` | string: `true\|false` | Always |
 | `USB_MOUNT_POINT` | string, absolute path | USB found |
+| `USB_DRIVE_LETTER` | string, single letter | USB found, WSL only |
 | `USB_ENV` | string: `wsl\|linux` | Always |
 | `USB_LABEL` | string | USB found, from manifest |
 | `USB_MANIFEST_VERSION` | integer | USB found, from manifest |
 | `USB_DEFAULT_PHASE` | string | USB found, from manifest |
 | `USB_SYNC_LOG` | string, absolute path | USB found, resolved from manifest |
 | `USB_LOADED_PROJECTS` | bash indexed array | USB found, after LOAD |
+| `USB_INITIALIZED` | `true` | After successful initialization |
+
+`USB_SCRIPT_PATH` is used by `usb_refresh` to re-source the script.
+`USB_DRIVE_LETTER` is used by `usb_eject` for the PowerShell eject verb.
+`USB_INITIALIZED` is checked by module guards and by usb.sh itself to
+prevent double-initialization.
+
 
 ### Per-Project (set during LOAD phase)
 
@@ -287,20 +303,128 @@ For each project in `USB_LOADED_PROJECTS`:
 
 ## Functions
 
+All public functions support `-h`/`--help` for usage information.
+Internal functions (underscore prefix) are not user-facing.
+
+### `usb_verify_connected`
+
+Check USB is still physically connected. Returns 0 if connected, 1 if
+not. If `USB_CONNECTED` is true but the manifest file is no longer
+accessible, updates `USB_CONNECTED` to false (stale state recovery).
+Used internally by other `usb_` functions as a pre-flight check.
+
+### `usb_push <project>`
+
+Push local git repo to USB bare repo. Auto-commits uncommitted changes
+with a standard dated message - for a meaningful commit message, run
+`git commit` first. Uses `git -C` throughout (does not change the
+working directory). Validates: project is loaded, local dir is a git
+repo, bare repo exists on USB, branch is not detached.
+
+### `usb_pull <project>`
+
+Pull from USB bare repo to local git repo. Refuses if uncommitted
+changes exist - commit or stash first. Uses `git -C` throughout.
+Same validation sequence as `usb_push`.
+
+### `usb_init_bare <project>`
+
+Create bare repo on USB for a loaded project. The project must have a
+conf file and `local_dir` must be a git repo. Refuses if bare repo
+already exists on USB. WSL: uses PowerShell git to create the bare repo
+(avoids cross-filesystem issues with `git init --bare`), adds
+`safe.directory`, pushes initial content. Linux: uses `git clone --bare`
+(copies content in one step).
+
+### `usb_clone_all`
+
+Clone all bare repos from USB to local directories. For new machine
+setup. Iterates `.usb-projects/*.conf` on USB, parses `local_dir` and
+`repo_path`. Skips projects where `local_dir` already exists or bare
+repo is missing on USB. Does NOT modify `USB_LOADED_PROJECTS` or export
+variables - run `usb_refresh` after to reload. WSL: adds
+`safe.directory` for each cloned repo.
+
 ### `usb_sync [project]`
 
-If `project` given: filter to that project. Otherwise: all loaded projects.
-
-For each matching project, run `sync_files` entries where phase is `manual` or `always`. Same execution logic as startup SYNC. Log results.
+Manually trigger file and directory sync. If project given, sync that
+project only. Otherwise, sync all loaded projects. Runs phases: `manual`,
+`always`. Calls `_usb_run_sync_files` and `_usb_run_sync_dirs` with
+trigger `sync`.
 
 ### `usb_eject`
 
-1. Run `sync_files` entries where phase is `auto` or `always` for all loaded projects (the exit sync).
+1. Run sync entries (phase: `auto`, `always`) for all loaded projects.
 2. If current directory is under `USB_MOUNT_POINT`, `cd ~`.
 3. Unmount `USB_MOUNT_POINT` if mounted.
-4. **WSL only:** remove empty mount directory, PowerShell eject, verify.
-5. **State cleanup:** iterate `USB_LOADED_PROJECTS`, unset all `USB_${proj_upper}_*` variables. Unset global USB variables. Set `USB_CONNECTED=false`.
-6. Delete `/tmp/usb_drive_cache`.
+4. **WSL only:** remove empty mount directory, PowerShell eject verb,
+   verify drive is gone.
+5. **State cleanup:** unset all `USB_${proj}_*` per-project variables,
+   unset global USB variables, set `USB_CONNECTED=false`, unset
+   `USB_INITIALIZED`, delete cache file.
+
+### `usb_refresh`
+
+Re-source usb.sh with `force` argument to bypass the drive cache. Uses
+`USB_SCRIPT_PATH` (set at source time) to locate the script file.
+Reports connection state after reload.
+
+### `usb_status`
+
+Print diagnostic information about USB state. Shows: connection state,
+environment, mount point, drive letter (WSL), manifest version, label,
+default phase, sync log path. For each loaded project: `local_dir`,
+`repo_path`, sync_files count, sync_dirs count. Safe to call regardless
+of connection state - prints minimal info when disconnected.
+
+### `usb_check`
+
+Validate conf files and check all referenced paths exist. Re-reads and
+parses conf files independently (same while-read pattern as LOAD -
+does not use cached variables). Checks performed per project:
+
+- `local_dir` present and directory exists
+- `repo_path` present and bare repo exists on USB
+- Branch consistency: local HEAD matches bare repo HEAD
+- Each `sync_file` source file exists, dest directory exists
+- Each `sync_dir` source directory exists, dest directory exists
+
+Reports all issues. Returns non-zero if any check fails.
+
+### `usb_new_project <name>`
+
+Create new project conf via editor. Name must be a valid bash identifier
+component: starts with a lowercase letter, contains only lowercase
+letters, digits, and underscores (becomes part of `USB_<NAME>_*`
+variable names). Writes a scaffold to `.usb-projects/<name>.conf.tmp`
+on USB, opens `$EDITOR`, validates required keys (`local_dir`,
+`repo_path`) after editor exits. Atomic move from `.tmp` to `.conf` on
+success. Run `usb_refresh` to load the new project.
+
+### `_usb_run_sync_files <project_name> <trigger_label>`
+
+Internal. Execute `sync_file` entries for a project, filtered by
+trigger. Trigger-to-phase mapping:
+
+| Trigger | Runs phases |
+|---------|------------|
+| `startup` | `auto`, `always` |
+| `sync` | `manual`, `always` |
+| `eject` | `auto`, `always` |
+
+For each matching entry: parse `src:dest:condition:phase`, apply
+condition check (`newer`  `-nt` test), copy if needed, log to
+`USB_SYNC_LOG`. Reads per-project array via `declare -n` nameref.
+
+### `_usb_run_sync_dirs <project_name> <trigger_label>`
+
+Internal. Execute `sync_dir` entries for a project, filtered by trigger.
+Same trigger-to-phase mapping as `_usb_run_sync_files`. For `newer`
+condition: walks source tree via `find -type f`, copies files newer than
+their dest counterpart, creates subdirectories within `dest_dir` as
+needed. Top-level `dest_dir` must exist. Validates dest paths stay
+within declared `dest_dir`. Symlinks skipped with count and warning.
+Logs summary (copied count, error count) per entry.
 
 ---
 
@@ -337,35 +461,29 @@ wrappers around `usb_push`/`usb_pull`, and the `-h`/`--help` convention.
 
 ---
 
-## Post-Implementation Notes
-
-### USB_DRIVE_LETTER Added to Global Schema
-`USB_DRIVE_LETTER` was not in the original variable table. It is set during FIND (WSL path only) and holds the Windows drive letter (e.g. "D"). It is required by `usb_eject` to invoke the PowerShell eject verb. It is unset on eject along with the other global USB vars.
-
-Full entry for the global variable table:
-
-| Variable | Type | Set When |
-|----------|------|----------|
-| `USB_DRIVE_LETTER` | string, single letter | USB found on WSL |
-
-### FUNCTIONS Section Moved Before SYNC
-The original design implied section order: FIND -> LOAD -> SYNC -> FUNCTIONS. The implemented order is FIND -> LOAD -> FUNCTIONS -> SYNC. The SYNC section calls `_usb_run_sync_files` at source time, not inside a deferred function. Bash requires a function to be defined before the line that calls it is reached. Moving FUNCTIONS above SYNC resolves the forward-reference without any behavioral change.
+## Implementation Notes
 
 ### Array Write: eval + printf %q in LOAD
-Bash arrays cannot be exported via the `export` builtin -- only scalar variables can be exported to the environment. Per-project arrays are assigned into the global scope using eval with printf %q quoting:
-```
-eval "USB_${upper}_SYNC_FILES=($(printf '%q ' "${entries[@]}"))"
-```
 
-printf %q quotes each entry safely, handling paths with spaces or special characters. No external dependencies.
+Bash arrays cannot be exported via the `export` builtin - only scalar
+variables can be exported to the environment. Per-project arrays are
+assigned into the global scope using eval with printf %q quoting:
 
-### Array Read: declare -n Nameref in Functions
-Inside `_usb_run_sync_files`, the per-project array is read via a declare -n nameref rather than eval-by-index:
+```bash
+eval "USB_$${upper}_SYNC_FILES=($$(printf '%q ' "${entries[@]}"))"
 ```
+printf %q quotes each entry safely, handling paths with spaces or special
+characters. No external dependencies.
+
+Array Read: declare -n Nameref in Functions
+Inside _usb_run_sync_files and _usb_run_sync_dirs, the per-project
+array is read via a declare -n nameref rather than eval-by-index:
+
+```bash
 declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
 ```
 
-Namerefs are cleaner than eval for reading and require bash 4.3+, which is confirmed on the target system. Namerefs are used for reading only -- writing through a nameref to a dynamically-named global is less predictable and is avoided.
-```
-
----
+Namerefs are cleaner than eval for reading and require bash 4.3+, which
+is confirmed on the target system. Namerefs are used for reading only -
+writing through a nameref to a dynamically-named global is less
+predictable and is avoided.
