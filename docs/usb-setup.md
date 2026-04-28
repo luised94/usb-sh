@@ -117,21 +117,16 @@ Symlinks in the source are skipped with a warning. Files deleted from
 the source are not removed from the dest -- sync_dir copies, it does
 not mirror.
 
-## How to Add a New Project
+## Adding a New Project
 
-1. Create a bare repo on the USB (if using git):
-   `git clone --bare /path/to/repo <USB_ROOT>/personal_repos/myproject.git`
+Run `usb_new_project <name>` for an interactive scaffold that creates the conf
+file on the USB and validates required keys. Run `usb_init_bare <name>` to
+create the bare repo on the USB from your local git repo.
 
-2. Copy the template and fill in values:
-   `cp <USB_ROOT>/.usb-projects/_template.conf.example <USB_ROOT>/.usb-projects/myproject.conf`
+For the module integration pattern (aliases, functions, guard), see
+[module-template.sh](module-template.sh).
 
-3. Edit myproject.conf with the correct local_dir and repo_path.
-
-4. Ensure local_dir exists on the local machine.
-
-5. Re-source usb.sh: `source ~/.config/mc_extensions/usb.sh force`
-
-6. Verify: `usb_status` should show the new project.
+For the conf schema and sync entry format, see [design.md](design.md).
 
 ## How to Add Sync Entries
 

@@ -1,3 +1,5 @@
+> **Status: All phases completed.** Implementation diverged from this plan in several areas - see [deferred-and-monitoring.md](deferred-and-monitoring.md) for ongoing tracking.
+
 # usb.sh - Implementation Plan
 
 Work phase by phase. Verify each phase before proceeding. Each commit is atomic - one logical change, system does not break.
