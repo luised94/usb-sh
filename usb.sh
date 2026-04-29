@@ -325,21 +325,64 @@ EOF
 
 # usb_push -- push local git repo to USB bare repo
 # Arguments:
-#   project_name -- name of the project as it appears in USB_LOADED_PROJECTS
-# Auto-commits uncommitted changes with standard message. For a meaningful
+#   project_name -- name of the project, or "all" for all loaded projects
+# Auto-commits uncommitted changes with timestamped message. For a meaningful
 # commit message, run git commit manually first. Uses git -C throughout.
+# "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_push() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
 usb_push - push local git repo to USB bare repo
 Usage:
-  usb_push <project>
-Auto-commits uncommitted changes before pushing.
+  usb_push <project>    push a specific project
+  usb_push all          push all loaded projects
+Auto-commits uncommitted changes with timestamped message.
 For a meaningful commit message, run git commit first.
 EOF
         return 0
     fi
     local usb_push_project_name="$1"
+    if [[ "$usb_push_project_name" == "all" ]]; then
+        if ! usb_verify_connected; then
+            echo "usb[ERROR]: USB not connected"
+            return 1
+        fi
+        if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
+            echo "usb: no projects loaded"
+            return 0
+        fi
+        local usb_push_all_project_name
+        local usb_push_success_count=0
+        local usb_push_fail_count=0
+        for usb_push_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            echo "usb: --- push $usb_push_all_project_name ---"
+            if usb_push "$usb_push_all_project_name"; then
+                usb_push_success_count=$((usb_push_success_count + 1))
+            else
+                usb_push_fail_count=$((usb_push_fail_count + 1))
+            fi
+        done
+        echo "usb: push all complete: $usb_push_success_count succeeded, $usb_push_fail_count failed"
+        if [[ "$usb_push_fail_count" -gt 0 ]]; then
+            echo "usb[ERROR]: push all finished with $usb_push_fail_count failure(s)"
+            return 1
+        fi
+        return 0
+    fi
+    local usb_push_project_name_upper
+    local usb_push_local_dir_variable_name
+    local usb_push_repo_path_variable_name
+    local usb_push_project_is_loaded
+    local usb_push_loaded_project_name
+    local usb_push_branch
+    local usb_push_bare_repo_path
+
+    if [[ -z "$usb_push_project_name" ]]; then
+        echo "usb[ERROR]: argument required: usb_push <project|all>"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        return 1
+    fi
+
     local usb_push_project_name_upper
     local usb_push_local_dir_variable_name
     local usb_push_repo_path_variable_name
@@ -394,7 +437,7 @@ EOF
     fi
     if [[ -n "$(git -C "$usb_push_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
         git -C "$usb_push_local_dir_ref" add -A
-        git -C "$usb_push_local_dir_ref" commit -m "$usb_push_project_name: sync $(date +%Y-%m-%d)"
+        git -C "$usb_push_local_dir_ref" commit -m "$usb_push_project_name: sync $(date +%Y-%m-%d.%H%M)"
     fi
     git -C "$usb_push_local_dir_ref" push "$usb_push_bare_repo_path" "$usb_push_branch"
     unset -n usb_push_local_dir_ref
@@ -403,20 +446,50 @@ EOF
 
 # usb_pull -- pull from USB bare repo to local git repo
 # Arguments:
-#   project_name -- name of the project as it appears in USB_LOADED_PROJECTS
+#   project_name -- name of the project, or "all" for all loaded projects
 # Refuses if uncommitted changes exist. Commit or stash manually first.
 # Uses git -C throughout.
+# "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_pull() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
 usb_pull - pull from USB bare repo to local git repo
 Usage:
-  usb_pull <project>
+  usb_pull <project>    pull a specific project
+  usb_pull all          pull all loaded projects
 Refuses if there are uncommitted changes. Commit or stash first.
 EOF
         return 0
     fi
-    local usb_pull_project_name="$1"
+
+local usb_pull_project_name="$1"
+    if [[ "$usb_pull_project_name" == "all" ]]; then
+        if ! usb_verify_connected; then
+            echo "usb[ERROR]: USB not connected"
+            return 1
+        fi
+        if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
+            echo "usb: no projects loaded"
+            return 0
+        fi
+        local usb_pull_all_project_name
+        local usb_pull_success_count=0
+        local usb_pull_fail_count=0
+        for usb_pull_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            echo "usb: --- pull $usb_pull_all_project_name ---"
+            if usb_pull "$usb_pull_all_project_name"; then
+                usb_pull_success_count=$((usb_pull_success_count + 1))
+            else
+                usb_pull_fail_count=$((usb_pull_fail_count + 1))
+            fi
+        done
+        echo "usb: pull all complete: $usb_pull_success_count succeeded, $usb_pull_fail_count failed"
+        if [[ "$usb_pull_fail_count" -gt 0 ]]; then
+            echo "usb[ERROR]: pull all finished with $usb_pull_fail_count failure(s)"
+            return 1
+        fi
+        return 0
+    fi
     local usb_pull_project_name_upper
     local usb_pull_local_dir_variable_name
     local usb_pull_repo_path_variable_name
@@ -425,9 +498,11 @@ EOF
     local usb_pull_branch
     local usb_pull_bare_repo_path
     if [[ -z "$usb_pull_project_name" ]]; then
-        echo "usb[ERROR]: usage: usb_pull <project>"
+        echo "usb[ERROR]: argument required: usb_pull <project|all>"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
+
     if ! usb_verify_connected; then
         echo "usb[ERROR]: USB not connected"
         return 1
@@ -1156,23 +1231,25 @@ usb_ps1_indicator() {
     fi
 }
 
-# usb_check -- validate conf files and check that all referenced paths exist
+
+# usb_check -- validate conf files, check referenced paths, detect config drift
 # No arguments. Requires USB_CONNECTED=true.
 # Re-reads and parses conf files independently (same while-read pattern as
-# LOAD). Reports only -- no copies, no exports, no state changes.
+# LOAD). Compares configs/*.conf.reference against live USB copies.
+# Reports only -- no copies, no exports, no state changes.
 usb_check() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
-usb_check - validate conf files and check referenced paths
+usb_check - validate conf files, check paths, and detect config drift
 Usage:
   usb_check
 Re-reads .usb-projects/*.conf on USB. Verifies local_dir,
 repo_path, sync_file sources and destinations, and sync_dir
-sources and destinations all exist. Reports errors.
+sources and destinations all exist. Compares configs/*.reference
+against live USB copies. Reports errors.
 EOF
         return 0
     fi
-
     local usb_check_conf_file_path
     local usb_check_project_name
     local usb_check_local_dir
@@ -1314,10 +1391,46 @@ EOF
                 echo "usb: check:   dest dir exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
-        done
-
+done
     done
-
+    # Config drift: compare configs/*.conf.reference against live USB copies.
+    # Derives repo root from USB_SCRIPT_PATH using readlink -f to resolve symlinks.
+    local usb_check_configs_dir
+    usb_check_configs_dir="$(dirname "$(readlink -f "$USB_SCRIPT_PATH")")/configs"
+    if [[ -d "$usb_check_configs_dir" ]]; then
+        echo "usb: check: --- config drift ---"
+        if [[ -f "$usb_check_configs_dir/.usb-manifest.reference" ]]; then
+            if ! cmp -s "$usb_check_configs_dir/.usb-manifest.reference" "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"; then
+                echo "usb: check: WARN .usb-manifest has drifted from reference copy"
+                usb_check_errors=$((usb_check_errors + 1))
+            else
+                echo "usb: check: .usb-manifest matches reference"
+            fi
+        fi
+        local usb_check_reference_file
+        local usb_check_reference_basename
+        local usb_check_conf_name
+        local usb_check_usb_conf_path
+        for usb_check_reference_file in "$usb_check_configs_dir"/*.conf.reference; do
+            if [[ ! -f "$usb_check_reference_file" ]]; then
+                break
+            fi
+            usb_check_reference_basename=$(basename "$usb_check_reference_file")
+            usb_check_conf_name="${usb_check_reference_basename%.reference}"
+            usb_check_usb_conf_path="$USB_MOUNT_POINT/.usb-projects/$usb_check_conf_name"
+            if [[ ! -f "$usb_check_usb_conf_path" ]]; then
+                echo "usb: check: WARN $usb_check_conf_name has no USB counterpart"
+                usb_check_errors=$((usb_check_errors + 1))
+                continue
+            fi
+            if ! cmp -s "$usb_check_reference_file" "$usb_check_usb_conf_path"; then
+                echo "usb: check: WARN $usb_check_conf_name has drifted from reference copy"
+                usb_check_errors=$((usb_check_errors + 1))
+            else
+                echo "usb: check: $usb_check_conf_name matches reference"
+            fi
+        done
+    fi
     if [[ "$usb_check_errors" -gt 0 ]]; then
         echo "usb: check: $usb_check_errors error(s) found"
         return 1

@@ -308,19 +308,25 @@ not. If `USB_CONNECTED` is true but the manifest file is no longer
 accessible, updates `USB_CONNECTED` to false (stale state recovery).
 Used internally by other `usb_` functions as a pre-flight check.
 
-### `usb_push <project>`
+
+### usb_push <project|all>
 
 Push local git repo to USB bare repo. Auto-commits uncommitted changes
-with a standard dated message - for a meaningful commit message, run
-`git commit` first. Uses `git -C` throughout (does not change the
-working directory). Validates: project is loaded, local dir is a git
-repo, bare repo exists on USB, branch is not detached.
+with a timestamped message (project: sync YYYY-MM-DD.HHMM) -- for a
+meaningful commit message, run git commit first. Uses git -C throughout
+(does not change the working directory). Validates: project is loaded,
+local dir is a git repo, bare repo exists on USB, branch is not detached.
+With "all", iterates all loaded projects using skip-and-continue:
+failures in one project do not stop others. Prints summary with
+success/fail counts.
 
-### `usb_pull <project>`
+### usb_pull <project|all>
 
 Pull from USB bare repo to local git repo. Refuses if uncommitted
-changes exist - commit or stash first. Uses `git -C` throughout.
-Same validation sequence as `usb_push`.
+changes exist -- commit or stash first. Uses git -C throughout.
+Same validation sequence as usb_push. With "all", iterates all loaded
+projects using skip-and-continue. Prints summary with success/fail
+counts.
 
 ### `usb_init_bare <project>`
 
@@ -372,19 +378,18 @@ default phase, sync log path. For each loaded project: `local_dir`,
 `repo_path`, sync_files count, sync_dirs count. Safe to call regardless
 of connection state - prints minimal info when disconnected.
 
-### `usb_check`
 
-Validate conf files and check all referenced paths exist. Re-reads and
-parses conf files independently (same while-read pattern as LOAD -
-does not use cached variables). Checks performed per project:
-
-- `local_dir` present and directory exists
-- `repo_path` present and bare repo exists on USB
-- Branch consistency: local HEAD matches bare repo HEAD
-- Each `sync_file` source file exists, dest directory exists
-- Each `sync_dir` source directory exists, dest directory exists
-
-Reports all issues. Returns non-zero if any check fails.
+### usb_check
+Validate conf files, check all referenced paths, and detect config drift.
+Re-reads and parses conf files independently (same while-read pattern as
+LOAD -- does not use cached variables). Checks performed per project:
+local_dir present and directory exists, repo_path present and bare repo
+exists on USB, branch consistency (local HEAD matches bare repo HEAD),
+each sync_file source file exists and dest directory exists, each
+sync_dir source directory and dest directory exist. After per-project
+checks, compares configs/*.conf.reference against live USB copies and
+.usb-manifest.reference against the live manifest using cmp. Reports
+all issues. Returns non-zero if any check fails.
 
 ### `usb_ps1_indicator`
 
