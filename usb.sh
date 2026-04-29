@@ -383,21 +383,11 @@ EOF
         return 1
     fi
 
-    local usb_push_project_name_upper
-    local usb_push_local_dir_variable_name
-    local usb_push_repo_path_variable_name
-    local usb_push_project_is_loaded
-    local usb_push_loaded_project_name
-    local usb_push_branch
-    local usb_push_bare_repo_path
-    if [[ -z "$usb_push_project_name" ]]; then
-        echo "usb[ERROR]: usage: usb_push <project>"
-        return 1
-    fi
     if ! usb_verify_connected; then
         echo "usb[ERROR]: USB not connected"
         return 1
     fi
+
     usb_push_project_is_loaded=false
     for usb_push_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         if [[ "$usb_push_loaded_project_name" == "$usb_push_project_name" ]]; then
