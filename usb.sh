@@ -323,21 +323,120 @@ EOF
     return 0
 }
 
+# usb_commit -- stage and commit changes in a loaded project
+# Arguments:
+#   project_name -- name of the project, or "all" for all loaded projects
+# Commits with a daily sync message: "project: sync YYYY-MM-DD".
+# If the last commit already matches today's message, amends it.
+# This accumulates a day's changes into a single commit.
+# Local-only operation -- does not require USB to be connected.
+# "all" mode uses skip-and-continue: failures in one project do not stop others.
+usb_commit() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_commit - stage and commit changes in a loaded project
+Usage:
+  usb_commit <project>    commit a specific project
+  usb_commit all          commit all loaded projects
+Stages all changes and commits with a daily sync message.
+If the last commit matches today's date, amends that commit
+instead of creating a new one. Skips projects with no changes.
+Does not require USB to be connected (local repos only).
+EOF
+        return 0
+    fi
+    local usb_commit_project_name="$1"
+    if [[ "$usb_commit_project_name" == "all" ]]; then
+        if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
+            echo "usb: no projects loaded"
+            return 0
+        fi
+        local usb_commit_all_project_name
+        local usb_commit_success_count=0
+        local usb_commit_fail_count=0
+        for usb_commit_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+            echo "usb: --- commit $usb_commit_all_project_name ---"
+            if usb_commit "$usb_commit_all_project_name"; then
+                usb_commit_success_count=$((usb_commit_success_count + 1))
+            else
+                usb_commit_fail_count=$((usb_commit_fail_count + 1))
+            fi
+        done
+        echo "usb: commit all complete: $usb_commit_success_count succeeded, $usb_commit_fail_count failed"
+        if [[ "$usb_commit_fail_count" -gt 0 ]]; then
+            echo "usb[ERROR]: commit all finished with $usb_commit_fail_count failure(s)"
+            return 1
+        fi
+        return 0
+    fi
+    local usb_commit_project_name_upper
+    local usb_commit_local_dir_variable_name
+    local usb_commit_project_is_loaded
+    local usb_commit_loaded_project_name
+    local usb_commit_today
+    local usb_commit_last_message
+    local usb_commit_expected_message
+    if [[ -z "$usb_commit_project_name" ]]; then
+        echo "usb[ERROR]: argument required: usb_commit <project|all>"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        return 1
+    fi
+    usb_commit_project_is_loaded=false
+    for usb_commit_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        if [[ "$usb_commit_loaded_project_name" == "$usb_commit_project_name" ]]; then
+            usb_commit_project_is_loaded=true
+            break
+        fi
+    done
+    if [[ "$usb_commit_project_is_loaded" == false ]]; then
+        echo "usb[ERROR]: project '$usb_commit_project_name' is not loaded"
+        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        return 1
+    fi
+    usb_commit_project_name_upper="${usb_commit_project_name^^}"
+    usb_commit_local_dir_variable_name="USB_${usb_commit_project_name_upper}_LOCAL_DIR"
+    declare -n usb_commit_local_dir_ref="$usb_commit_local_dir_variable_name"
+    if [[ ! -d "$usb_commit_local_dir_ref/.git" ]]; then
+        echo "usb[ERROR]: $usb_commit_local_dir_ref is not a git repo"
+        unset -n usb_commit_local_dir_ref
+        return 1
+    fi
+    if [[ -z "$(git -C "$usb_commit_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
+        echo "usb: [$usb_commit_project_name] nothing to commit"
+        unset -n usb_commit_local_dir_ref
+        return 0
+    fi
+    git -C "$usb_commit_local_dir_ref" add -A
+    usb_commit_today="$(date +%Y-%m-%d)"
+    usb_commit_expected_message="$usb_commit_project_name: sync $usb_commit_today"
+    usb_commit_last_message="$(git -C "$usb_commit_local_dir_ref" log -1 --format=%s 2>/dev/null)"
+    if [[ "$usb_commit_last_message" == "$usb_commit_expected_message" ]]; then
+        git -C "$usb_commit_local_dir_ref" commit --amend --no-edit
+        echo "usb: [$usb_commit_project_name] amended today's commit"
+    else
+        git -C "$usb_commit_local_dir_ref" commit -m "$usb_commit_expected_message"
+        echo "usb: [$usb_commit_project_name] committed: $usb_commit_expected_message"
+    fi
+    unset -n usb_commit_local_dir_ref
+}
+
 # usb_push -- push local git repo to USB bare repo
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
-# Auto-commits uncommitted changes with timestamped message. For a meaningful
-# commit message, run git commit manually first. Uses git -C throughout.
+# Transport only -- refuses if uncommitted changes exist.
+# Run usb_commit first to stage and commit.
+# Uses --force to handle amended commits from usb_commit.
+# Uses git -C throughout.
 # "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_push() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
-        cat <<'EOF'
+      cat <<'EOF'
 usb_push - push local git repo to USB bare repo
 Usage:
   usb_push <project>    push a specific project
   usb_push all          push all loaded projects
-Auto-commits uncommitted changes with timestamped message.
-For a meaningful commit message, run git commit first.
+Refuses if there are uncommitted changes. Run usb_commit first.
+Uses --force to handle amended commits.
 EOF
         return 0
     fi
@@ -425,11 +524,15 @@ EOF
         unset -n usb_push_repo_path_ref
         return 1
     fi
+
     if [[ -n "$(git -C "$usb_push_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
-        git -C "$usb_push_local_dir_ref" add -A
-        git -C "$usb_push_local_dir_ref" commit -m "$usb_push_project_name: sync $(date +%Y-%m-%d.%H%M)"
+        echo "usb[ERROR]: uncommitted changes in $usb_push_local_dir_ref"
+        echo "usb: run usb_commit $usb_push_project_name first"
+        unset -n usb_push_local_dir_ref
+        unset -n usb_push_repo_path_ref
+        return 1
     fi
-    git -C "$usb_push_local_dir_ref" push "$usb_push_bare_repo_path" "$usb_push_branch"
+    git -C "$usb_push_local_dir_ref" push --force "$usb_push_bare_repo_path" "$usb_push_branch"
     unset -n usb_push_local_dir_ref
     unset -n usb_push_repo_path_ref
 }
