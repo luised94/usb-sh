@@ -504,7 +504,7 @@ EOF
     usb_push_repo_path_variable_name="USB_${usb_push_project_name_upper}_REPO_PATH"
     declare -n usb_push_local_dir_ref="$usb_push_local_dir_variable_name"
     declare -n usb_push_repo_path_ref="$usb_push_repo_path_variable_name"
-    if [[ ! -d "$usb_push_local_dir_ref/.git" ]]; then
+    if [[ ! -e "$usb_push_local_dir_ref/.git" ]]; then
         echo "usb[ERROR]: $usb_push_local_dir_ref is not a git repo"
         unset -n usb_push_local_dir_ref
         unset -n usb_push_repo_path_ref
@@ -1430,7 +1430,7 @@ EOF
             fi
         fi
 
-        if [[ -d "$usb_check_local_dir/.git" && -d "$USB_MOUNT_POINT/$usb_check_repo_path" ]]; then
+        if [[ -e "$usb_check_local_dir/.git" && -d "$USB_MOUNT_POINT/$usb_check_repo_path" ]]; then
             usb_check_local_branch=$(git -C "$usb_check_local_dir" symbolic-ref --short HEAD 2>/dev/null)
             usb_check_bare_branch=$(git -C "$USB_MOUNT_POINT/$usb_check_repo_path" symbolic-ref --short HEAD 2>/dev/null)
             if [[ -n "$usb_check_local_branch" && -n "$usb_check_bare_branch" ]]; then
