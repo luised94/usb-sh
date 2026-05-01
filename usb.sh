@@ -111,6 +111,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
                 echo "$USB_DETECTED_DRIVE_LETTER" > "$USB_CACHE_FILE"
 
                 if [[ ! -d "$USB_MOUNT_POINT" ]]; then
+                    echo "usb: mkdir ${USB_MOUNT_POINT}: requires sudo..."
                     sudo mkdir -p "$USB_MOUNT_POINT"
                 fi
 
