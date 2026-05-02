@@ -64,6 +64,9 @@ USB_MANIFEST_FILENAME=".usb-manifest"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
+# USB_KEYS_LOADED: true/false, whether keys are currently in environment
+# _USB_LOADED_KEY_NAMES: indexed array of variable names exported by usb_load_keys
+#   Used by usb_unload_keys to know what to unset without hardcoding key names
 USB_KEYS_LOADED=false
 _USB_LOADED_KEY_NAMES=()
 
@@ -1718,6 +1721,12 @@ SCAFFOLD
 #   - Pre-commit hook installer for API key pattern detection
 #   - Note: shred is ineffective on 9p/NTFS (USB filesystem), effective on /dev/shm (tmpfs)
 #   - Note: pinentry-curses is unreliable in tmux; --pinentry-mode loopback is required
+# DESIGN: Keys are NOT a usb-sh project. Projects have local_dir, repo_path,
+#   and participate in commit/push/pull. Keys have none of these. .keys/ is a
+#   peer directory to .usb-projects/ with its own simpler contract.
+#
+# MULTI-PANE: Each tmux pane is a separate shell. usb_load_keys must be called
+#   independently in each pane that needs keys. usb_shutdown kills all panes.
 # =============================================================================
 
 # _usb_gpg_check -- verify GPG loopback pinentry is available
