@@ -1131,6 +1131,10 @@ EOF
         return 0
     fi
 
+    # Unload keys before any eject/cleanup logic.
+    # Placed before verify_connected: keys should be unloaded even if USB was yanked.
+    usb_unload_keys
+
     local usb_eject_project_name
     local usb_eject_project_name_upper
     local usb_drive_still_present
@@ -1157,6 +1161,8 @@ EOF
         unset USB_SYNC_LOG
         unset USB_LOADED_PROJECTS
         unset USB_ENV
+        unset USB_KEYS_LOADED
+        unset _USB_LOADED_KEY_NAMES
         export USB_CONNECTED=false
         unset USB_INITIALIZED
         rm -f "$USB_CACHE_FILE"
@@ -1221,6 +1227,8 @@ EOF
     unset USB_SYNC_LOG
     unset USB_LOADED_PROJECTS
     unset USB_ENV
+    unset USB_KEYS_LOADED
+    unset _USB_LOADED_KEY_NAMES
     export USB_CONNECTED=false
     unset USB_INITIALIZED
     rm -f "$USB_CACHE_FILE"
@@ -1690,6 +1698,492 @@ SCAFFOLD
     mv "$usb_new_project_tmp_path" "$usb_new_project_conf_path"
     echo "usb: created $usb_new_project_conf_path"
     echo "usb: run usb_refresh to load the new project"
+}
+
+# =============================================================================
+# KEYS -- Encrypted API key management
+#
+# Stores GPG-encrypted key-value pairs on USB (.keys/env.gpg), decrypts
+# on-demand into shell environment variables, cleans up on session end.
+#
+# REQUIREMENTS:
+#   - GPG 2.x with allow-loopback-pinentry in ~/.gnupg/gpg-agent.conf
+#   - /dev/shm available (tmpfs, RAM-only) for plaintext during editing
+#   - After changing gpg-agent.conf: gpgconf --kill gpg-agent
+#
+# FUTURE:
+#   - Per-project key files (.keys/<project>.gpg, loaded via usb_load_keys <project>)
+#   - gpg-agent cache TTL enforcement (default-cache-ttl 0) for stricter security
+#   - PROMPT_COMMAND revocation guard for tmux multi-pane auto-unload
+#   - Pre-commit hook installer for API key pattern detection
+#   - Note: shred is ineffective on 9p/NTFS (USB filesystem), effective on /dev/shm (tmpfs)
+#   - Note: pinentry-curses is unreliable in tmux; --pinentry-mode loopback is required
+# =============================================================================
+
+# _usb_gpg_check -- verify GPG loopback pinentry is available
+# Returns 0 if ready, 1 with actionable error if not.
+# Called by every function that invokes GPG. Cost: one grep per call.
+_usb_gpg_check() {
+    if ! command -v gpg > /dev/null 2>&1; then
+        echo "usb[ERROR]: gpg command not found"
+        return 1
+    fi
+
+    if [[ ! -f "$HOME/.gnupg/gpg-agent.conf" ]]; then
+        echo "usb[ERROR]: ~/.gnupg/gpg-agent.conf not found"
+        echo "usb: create it with:"
+        echo "usb:   printf '%s\\n' 'pinentry-program /usr/bin/pinentry-curses' 'allow-loopback-pinentry' > ~/.gnupg/gpg-agent.conf"
+        echo "usb:   gpgconf --kill gpg-agent"
+        return 1
+    fi
+
+    if ! grep -q "^allow-loopback-pinentry" "$HOME/.gnupg/gpg-agent.conf" 2>/dev/null; then
+        echo "usb[ERROR]: GPG loopback pinentry not enabled"
+        echo "usb: add 'allow-loopback-pinentry' to ~/.gnupg/gpg-agent.conf"
+        echo "usb: then run: gpgconf --kill gpg-agent"
+        return 1
+    fi
+
+    return 0
+}
+
+# _usb_gpg_encrypt -- encrypt a file with GPG symmetric AES256
+# Arguments:
+#   $1 -- output path (.gpg file)
+#   $2 -- input path (plaintext file)
+# Uses --pinentry-mode loopback for tmux compatibility.
+# Caller must check return code.
+_usb_gpg_encrypt() {
+    gpg --symmetric --cipher-algo AES256 --pinentry-mode loopback --yes --output "$1" "$2"
+}
+
+# _usb_gpg_decrypt -- decrypt a GPG file to stdout
+# Arguments:
+#   $1 -- input path (.gpg file)
+# Uses --pinentry-mode loopback for tmux compatibility.
+# Output goes to stdout; caller captures or redirects.
+# Caller must check return code.
+_usb_gpg_decrypt() {
+    gpg --quiet --decrypt --pinentry-mode loopback "$1"
+}
+
+# _usb_gpg_decrypt_to_file -- decrypt a GPG file to a specified output path
+# Arguments:
+#   $1 -- input path (.gpg file)
+#   $2 -- output path (plaintext file)
+# Uses --pinentry-mode loopback for tmux compatibility.
+# Caller must check return code.
+_usb_gpg_decrypt_to_file() {
+    gpg --quiet --decrypt --pinentry-mode loopback --output "$2" "$1"
+}
+
+# usb_init_keys -- first-time setup of encrypted key file on USB
+# Creates .keys/env.gpg via editor + GPG encryption.
+# Plaintext only exists on /dev/shm (tmpfs) during editing.
+usb_init_keys() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_init_keys - create encrypted API key file on USB
+Usage:
+  usb_init_keys
+First-time setup. Opens editor with a scaffold, encrypts the
+result to .keys/env.gpg on USB. Use usb_edit_keys to modify
+an existing file.
+Requires: USB connected, GPG with loopback pinentry enabled.
+EOF
+        return 0
+    fi
+
+    if ! _usb_gpg_check; then
+        return 1
+    fi
+
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    local usb_init_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_init_keys_tmp_path="/dev/shm/usb_keys_init_$$"
+    local usb_init_keys_editor
+    local usb_init_keys_has_valid_line
+
+    if [[ -f "$usb_init_keys_gpg_path" ]]; then
+        echo "usb[ERROR]: .keys/env.gpg already exists"
+        echo "usb: use usb_edit_keys to modify, or remove manually and re-run"
+        return 1
+    fi
+
+    usb_init_keys_editor="${EDITOR:-vi}"
+    if ! command -v "$usb_init_keys_editor" > /dev/null 2>&1; then
+        echo "usb[ERROR]: editor not found: $usb_init_keys_editor"
+        echo "usb: set EDITOR to a valid editor"
+        return 1
+    fi
+
+    mkdir -p "$USB_MOUNT_POINT/.keys"
+
+    # Write scaffold to tmpfs (RAM-only, never hits disk)
+    cat > "$usb_init_keys_tmp_path" << 'SCAFFOLD'
+# API keys - one per line, KEY=value format
+# Blank lines and lines starting with # are skipped
+# Values are everything after the first = (may contain = signs)
+# Example:
+# ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxx
+SCAFFOLD
+
+    chmod 600 "$usb_init_keys_tmp_path"
+
+    echo "usb: opening editor: $usb_init_keys_editor"
+    "$usb_init_keys_editor" "$usb_init_keys_tmp_path"
+
+    if [[ ! -f "$usb_init_keys_tmp_path" ]]; then
+        echo "usb[ERROR]: temp file removed, aborting"
+        return 1
+    fi
+
+    # Validate: at least one KEY=value line
+    usb_init_keys_has_valid_line=false
+    while IFS='=' read -r usb_init_keys_key usb_init_keys_value; do
+        if [[ -z "$usb_init_keys_key" || "$usb_init_keys_key" == \#* ]]; then
+            continue
+        fi
+        if [[ -n "$usb_init_keys_value" ]]; then
+            usb_init_keys_has_valid_line=true
+            break
+        fi
+    done < "$usb_init_keys_tmp_path"
+
+    if [[ "$usb_init_keys_has_valid_line" == false ]]; then
+        echo "usb[ERROR]: no valid KEY=value lines found"
+        shred -u "$usb_init_keys_tmp_path" 2>/dev/null || rm -f "$usb_init_keys_tmp_path"
+        return 1
+    fi
+
+    # Encrypt to USB
+    if ! _usb_gpg_encrypt "$usb_init_keys_gpg_path" "$usb_init_keys_tmp_path"; then
+        echo "usb[ERROR]: GPG encryption failed (passphrase cancelled?)"
+        shred -u "$usb_init_keys_tmp_path" 2>/dev/null || rm -f "$usb_init_keys_tmp_path"
+        return 1
+    fi
+
+    # Shred plaintext from tmpfs
+    shred -u "$usb_init_keys_tmp_path" 2>/dev/null || rm -f "$usb_init_keys_tmp_path"
+
+    # Write README if it doesn't exist
+    if [[ ! -f "$USB_MOUNT_POINT/.keys/README" ]]; then
+        cat > "$USB_MOUNT_POINT/.keys/README" << 'README'
+# .keys/ - Encrypted API Key Storage
+#
+# File: env.gpg
+#   GPG symmetric AES256-encrypted key-value file.
+#   Format: KEY=value, one per line. Comments (#) and blank lines skipped.
+#   Values are everything after the first = (may contain = signs).
+#
+# Commands:
+#   usb_init_keys    - first-time creation (refuses if env.gpg exists)
+#   usb_edit_keys    - decrypt, edit, re-encrypt cycle
+#   usb_load_keys    - decrypt and export as environment variables
+#   usb_unload_keys  - remove keys from environment
+#   usb_keys_status  - show current key state
+#   usb_shutdown     - unload keys, eject USB, kill tmux
+#
+# Security:
+#   - Plaintext only exists on /dev/shm (tmpfs, RAM-only) during editing
+#   - shred -u is used on /dev/shm files after encryption
+#   - USB filesystem is 9p/NTFS; only the .gpg file is written there
+#   - Keys in environment vanish when shell exits or usb_unload_keys runs
+#
+# GPG Setup Required:
+#   ~/.gnupg/gpg-agent.conf must contain:
+#     pinentry-program /usr/bin/pinentry-curses
+#     allow-loopback-pinentry
+#   After editing: gpgconf --kill gpg-agent
+#   Shell must export: GPG_TTY=$(tty)
+README
+    fi
+
+    echo "usb: keys initialized at $usb_init_keys_gpg_path"
+}
+
+# usb_edit_keys -- decrypt, edit, and re-encrypt the key file
+# Plaintext only exists on /dev/shm (tmpfs) during editing.
+# If re-encryption fails, tmpfs file is preserved for recovery.
+usb_edit_keys() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_edit_keys - edit the encrypted API key file
+Usage:
+  usb_edit_keys
+Decrypts .keys/env.gpg to /dev/shm, opens editor, re-encrypts.
+If no changes are made, skips re-encryption.
+If re-encryption fails, the tmpfs file is preserved (path printed).
+Requires: USB connected, .keys/env.gpg exists.
+EOF
+        return 0
+    fi
+
+    if ! _usb_gpg_check; then
+        return 1
+    fi
+
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    local usb_edit_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_edit_keys_tmp_path="/dev/shm/usb_keys_edit_$$"
+    local usb_edit_keys_editor
+    local usb_edit_keys_checksum_before
+    local usb_edit_keys_checksum_after
+    local usb_edit_keys_has_valid_line
+
+    if [[ ! -f "$usb_edit_keys_gpg_path" ]]; then
+        echo "usb[ERROR]: .keys/env.gpg not found"
+        echo "usb: run usb_init_keys to create it"
+        return 1
+    fi
+
+    usb_edit_keys_editor="${EDITOR:-vi}"
+    if ! command -v "$usb_edit_keys_editor" > /dev/null 2>&1; then
+        echo "usb[ERROR]: editor not found: $usb_edit_keys_editor"
+        echo "usb: set EDITOR to a valid editor"
+        return 1
+    fi
+
+    # Decrypt to tmpfs
+    if ! _usb_gpg_decrypt_to_file "$usb_edit_keys_gpg_path" "$usb_edit_keys_tmp_path"; then
+        echo "usb[ERROR]: GPG decryption failed (wrong passphrase or cancelled)"
+        rm -f "$usb_edit_keys_tmp_path" 2>/dev/null
+        return 1
+    fi
+
+    chmod 600 "$usb_edit_keys_tmp_path"
+
+    # Checksum before edit
+    usb_edit_keys_checksum_before=$(sha256sum "$usb_edit_keys_tmp_path" | cut -d' ' -f1)
+
+    echo "usb: opening editor: $usb_edit_keys_editor"
+    "$usb_edit_keys_editor" "$usb_edit_keys_tmp_path"
+
+    if [[ ! -f "$usb_edit_keys_tmp_path" ]]; then
+        echo "usb[ERROR]: temp file removed during editing, aborting"
+        return 1
+    fi
+
+    # Checksum after edit
+    usb_edit_keys_checksum_after=$(sha256sum "$usb_edit_keys_tmp_path" | cut -d' ' -f1)
+
+    if [[ "$usb_edit_keys_checksum_before" == "$usb_edit_keys_checksum_after" ]]; then
+        echo "usb: no changes detected, skipping re-encryption"
+        shred -u "$usb_edit_keys_tmp_path" 2>/dev/null || rm -f "$usb_edit_keys_tmp_path"
+        return 0
+    fi
+
+    # Validate: at least one KEY=value line
+    usb_edit_keys_has_valid_line=false
+    while IFS='=' read -r usb_edit_keys_key usb_edit_keys_value; do
+        if [[ -z "$usb_edit_keys_key" || "$usb_edit_keys_key" == \#* ]]; then
+            continue
+        fi
+        if [[ -n "$usb_edit_keys_value" ]]; then
+            usb_edit_keys_has_valid_line=true
+            break
+        fi
+    done < "$usb_edit_keys_tmp_path"
+
+    if [[ "$usb_edit_keys_has_valid_line" == false ]]; then
+        echo "usb[ERROR]: no valid KEY=value lines found after edit"
+        echo "usb: tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
+        return 1
+    fi
+
+    # Re-encrypt to USB
+    if ! _usb_gpg_encrypt "$usb_edit_keys_gpg_path" "$usb_edit_keys_tmp_path"; then
+        echo "usb[ERROR]: GPG re-encryption failed (passphrase cancelled?)"
+        echo "usb: tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
+        return 1
+    fi
+
+    # Shred plaintext from tmpfs
+    shred -u "$usb_edit_keys_tmp_path" 2>/dev/null || rm -f "$usb_edit_keys_tmp_path"
+
+    if [[ "$USB_KEYS_LOADED" == true ]]; then
+        echo "usb[WARN]: loaded keys are now stale, run usb_load_keys to reload"
+    fi
+
+    echo "usb: keys updated at $usb_edit_keys_gpg_path"
+}
+
+# usb_load_keys -- decrypt key file and export as environment variables
+# Decrypts to a shell variable (never tmpfs), parses, exports each key.
+# Tracks exported names in _USB_LOADED_KEY_NAMES for clean unload.
+usb_load_keys() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_load_keys - load encrypted API keys into environment
+Usage:
+  usb_load_keys
+Decrypts .keys/env.gpg and exports each KEY=value pair as an
+environment variable. Tracks loaded names for usb_unload_keys.
+If keys are already loaded, unloads first (clean reload).
+Requires: USB connected, .keys/env.gpg exists.
+EOF
+        return 0
+    fi
+
+    if ! _usb_gpg_check; then
+        return 1
+    fi
+
+    if ! usb_verify_connected; then
+        echo "usb[ERROR]: USB not connected"
+        return 1
+    fi
+
+    local usb_load_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_load_keys_decrypted
+    local usb_load_keys_key
+    local usb_load_keys_value
+    local usb_load_keys_count=0
+
+    if [[ ! -f "$usb_load_keys_gpg_path" ]]; then
+        echo "usb[ERROR]: .keys/env.gpg not found"
+        echo "usb: run usb_init_keys to create it"
+        return 1
+    fi
+
+    # Clean reload if already loaded
+    if [[ "$USB_KEYS_LOADED" == true ]]; then
+        usb_unload_keys
+    fi
+
+    # Decrypt to variable. GPG prompts on /dev/tty via loopback,
+    # stdout (decrypted content) is captured by $(...).
+    # Stderr passes through to user for error visibility.
+    usb_load_keys_decrypted=$(_usb_gpg_decrypt "$usb_load_keys_gpg_path")
+
+    if [[ $? -ne 0 || -z "$usb_load_keys_decrypted" ]]; then
+        echo "usb[ERROR]: GPG decryption failed (wrong passphrase or cancelled)"
+        unset usb_load_keys_decrypted
+        return 1
+    fi
+
+    _USB_LOADED_KEY_NAMES=()
+
+    while IFS='=' read -r usb_load_keys_key usb_load_keys_value; do
+        if [[ -z "$usb_load_keys_key" || "$usb_load_keys_key" == \#* ]]; then
+            continue
+        fi
+        if [[ -z "$usb_load_keys_value" ]]; then
+            continue
+        fi
+        export "$usb_load_keys_key=$usb_load_keys_value"
+        _USB_LOADED_KEY_NAMES+=("$usb_load_keys_key")
+        usb_load_keys_count=$((usb_load_keys_count + 1))
+    done <<< "$usb_load_keys_decrypted"
+
+    # Kill plaintext from memory
+    unset usb_load_keys_decrypted
+
+    USB_KEYS_LOADED=true
+    echo "usb: loaded $usb_load_keys_count key(s) into environment"
+}
+
+# usb_unload_keys -- remove loaded API keys from environment
+# Iterates _USB_LOADED_KEY_NAMES and unsets each. Idempotent.
+usb_unload_keys() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_unload_keys - remove API keys from environment
+Usage:
+  usb_unload_keys
+Unsets all environment variables loaded by usb_load_keys.
+Safe to call multiple times (idempotent).
+EOF
+        return 0
+    fi
+
+    local usb_unload_keys_name
+
+    if [[ "$USB_KEYS_LOADED" != true ]]; then
+        echo "usb: no keys loaded"
+        return 0
+    fi
+
+    for usb_unload_keys_name in "${_USB_LOADED_KEY_NAMES[@]}"; do
+        unset "$usb_unload_keys_name"
+    done
+
+    _USB_LOADED_KEY_NAMES=()
+    USB_KEYS_LOADED=false
+    echo "usb: keys removed from environment"
+}
+
+# usb_keys_status -- report current key management state
+usb_keys_status() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_keys_status - show API key management state
+Usage:
+  usb_keys_status
+Reports: loaded state, count, variable names (never values),
+source file path, and GPG loopback availability.
+EOF
+        return 0
+    fi
+
+    local usb_keys_status_gpg_loopback
+
+    echo "usb: keys: loaded=$USB_KEYS_LOADED"
+    echo "usb: keys: count=${#_USB_LOADED_KEY_NAMES[@]}"
+
+    if [[ ${#_USB_LOADED_KEY_NAMES[@]} -gt 0 ]]; then
+        echo "usb: keys: names=${_USB_LOADED_KEY_NAMES[*]}"
+    fi
+
+    if [[ "$USB_CONNECTED" == true ]]; then
+        echo "usb: keys: source=$USB_MOUNT_POINT/.keys/env.gpg"
+        if [[ -f "$USB_MOUNT_POINT/.keys/env.gpg" ]]; then
+            echo "usb: keys: file=present"
+        else
+            echo "usb: keys: file=missing"
+        fi
+    else
+        echo "usb: keys: source=unavailable (USB not connected)"
+    fi
+
+    if _usb_gpg_check > /dev/null 2>&1; then
+        usb_keys_status_gpg_loopback="available"
+    else
+        usb_keys_status_gpg_loopback="unavailable"
+    fi
+    echo "usb: keys: gpg_loopback=$usb_keys_status_gpg_loopback"
+}
+
+# usb_shutdown -- unload keys, eject USB, kill tmux
+# Does NOT call exit. Tmux kill-server ends all panes.
+# In a bare terminal, user lands at a clean prompt.
+usb_shutdown() {
+    if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+        cat <<'EOF'
+usb_shutdown - full session teardown
+Usage:
+  usb_shutdown
+Unloads keys, ejects USB (if connected), kills tmux server.
+Does not call exit. In a bare terminal, returns to prompt.
+EOF
+        return 0
+    fi
+
+    usb_unload_keys
+
+    if [[ "$USB_CONNECTED" == true ]]; then
+        usb_eject
+    fi
+
+    tmux kill-server 2>/dev/null
 }
 
 # =============================================================================
