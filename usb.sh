@@ -1762,6 +1762,85 @@ _usb_gpg_check() {
     return 0
 }
 
+# _usb_check_editor_safety -- warn if editor may leak plaintext to disk
+# Checks for nvim/vim undo, swap, and backup persistence on /dev/shm paths.
+# Returns 0 always (warning only, does not block).
+_usb_check_editor_safety() {
+    local usb_check_editor_name
+    local usb_check_editor_config
+    local usb_check_editor_warnings=0
+
+    usb_check_editor_name=$(basename "${EDITOR:-vi}")
+
+    case "$usb_check_editor_name" in
+        nvim)
+            # Check init.lua first, then init.vim
+            usb_check_editor_config=""
+            if [[ -f "$HOME/.config/nvim/init.lua" ]]; then
+                usb_check_editor_config="$HOME/.config/nvim/init.lua"
+                if ! grep -q "/dev/shm" "$usb_check_editor_config" 2>/dev/null; then
+                    usb_check_editor_warnings=1
+                fi
+            elif [[ -f "$HOME/.config/nvim/init.vim" ]]; then
+                usb_check_editor_config="$HOME/.config/nvim/init.vim"
+                if ! grep -q "/dev/shm" "$usb_check_editor_config" 2>/dev/null; then
+                    usb_check_editor_warnings=1
+                fi
+            else
+                usb_check_editor_warnings=1
+            fi
+
+            if [[ "$usb_check_editor_warnings" -eq 1 ]]; then
+                echo "usb[WARN]: nvim may write plaintext to disk (swap, undo, backup files)"
+                echo "usb[WARN]: add /dev/shm autocmd to ${usb_check_editor_config:-~/.config/nvim/init.lua}"
+                echo "usb[WARN]: see .keys/README or usb-sh docs for the required config"
+            fi
+            ;;
+        vim)
+            usb_check_editor_config="$HOME/.vimrc"
+            if [[ -f "$usb_check_editor_config" ]]; then
+                if ! grep -q "/dev/shm" "$usb_check_editor_config" 2>/dev/null; then
+                    usb_check_editor_warnings=1
+                fi
+            else
+                usb_check_editor_warnings=1
+            fi
+
+            if [[ "$usb_check_editor_warnings" -eq 1 ]]; then
+                echo "usb[WARN]: vim may write plaintext to disk (swap, undo, backup files)"
+                echo "usb[WARN]: add /dev/shm autocmd to ${usb_check_editor_config}"
+                echo "usb[WARN]: see .keys/README or usb-sh docs for the required config"
+            fi
+            ;;
+        vi|nano)
+            # Generally safe by default, no warning needed
+            ;;
+        *)
+            echo "usb[WARN]: unknown editor '$usb_check_editor_name' -- verify it does not"
+            echo "usb[WARN]: write swap, undo, or backup files for /dev/shm paths"
+            ;;
+    esac
+
+    # Check for existing leaked undo/swap files from previous sessions
+    local usb_check_leaked_files
+    usb_check_leaked_files=$(find \
+        "$HOME/.local/state/nvim/undo" \
+        "$HOME/.local/state/nvim/swap" \
+        "$HOME/.local/share/nvim/swap" \
+        "$HOME/.vim/undodir" \
+        "$HOME/.vim/swap" \
+        -name "*shm*" -o -name "*usb_keys*" \
+        2>/dev/null)
+
+    if [[ -n "$usb_check_leaked_files" ]]; then
+        echo "usb[WARN]: found editor residue files that may contain plaintext keys:"
+        echo "$usb_check_leaked_files"
+        echo "usb[WARN]: review and delete these files with: shred -u <file>"
+    fi
+
+    return 0
+}
+
 # _usb_gpg_encrypt -- encrypt a file with GPG symmetric AES256
 # Arguments:
 #   $1 -- output path (.gpg file)
@@ -1849,6 +1928,7 @@ SCAFFOLD
 
     chmod 600 "$usb_init_keys_tmp_path"
 
+    _usb_check_editor_safety
     echo "usb: opening editor: $usb_init_keys_editor"
     "$usb_init_keys_editor" "$usb_init_keys_tmp_path"
 
@@ -1979,6 +2059,7 @@ EOF
     # Checksum before edit
     usb_edit_keys_checksum_before=$(sha256sum "$usb_edit_keys_tmp_path" | cut -d' ' -f1)
 
+    _usb_check_editor_safety
     echo "usb: opening editor: $usb_edit_keys_editor"
     "$usb_edit_keys_editor" "$usb_edit_keys_tmp_path"
 
