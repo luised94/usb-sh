@@ -1723,17 +1723,30 @@ SCAFFOLD
 # _usb_gpg_check -- verify GPG loopback pinentry is available
 # Returns 0 if ready, 1 with actionable error if not.
 # Called by every function that invokes GPG. Cost: one grep per call.
+
 _usb_gpg_check() {
     if ! command -v gpg > /dev/null 2>&1; then
         echo "usb[ERROR]: gpg command not found"
         return 1
     fi
 
+    if [[ ! -d "$HOME/.gnupg" ]]; then
+        echo "usb[ERROR]: ~/.gnupg directory not found"
+        echo "usb: run: mkdir -p ~/.gnupg && chmod 700 ~/.gnupg"
+        return 1
+    fi
+
+    local usb_gpg_check_perms
+    usb_gpg_check_perms=$(stat -c '%a' "$HOME/.gnupg" 2>/dev/null)
+    if [[ "$usb_gpg_check_perms" != "700" ]]; then
+        echo "usb[ERROR]: ~/.gnupg has unsafe permissions ($usb_gpg_check_perms, need 700)"
+        echo "usb: run: chmod 700 ~/.gnupg && chmod 600 ~/.gnupg/*"
+        return 1
+    fi
+
     if [[ ! -f "$HOME/.gnupg/gpg-agent.conf" ]]; then
         echo "usb[ERROR]: ~/.gnupg/gpg-agent.conf not found"
         echo "usb: create it with:"
-        echo "usb:   mkdir -p ~/.gnupg/"
-        echo "usb:   touch ~/.gnupg/gpg-agent.conf"
         echo "usb:   printf '%s\\n' 'pinentry-program /usr/bin/pinentry-curses' 'allow-loopback-pinentry' > ~/.gnupg/gpg-agent.conf"
         echo "usb:   gpgconf --kill gpg-agent"
         return 1
