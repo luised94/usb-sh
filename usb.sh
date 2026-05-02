@@ -1164,8 +1164,8 @@ EOF
         unset USB_SYNC_LOG
         unset USB_LOADED_PROJECTS
         unset USB_ENV
-        unset USB_KEYS_LOADED
-        unset _USB_LOADED_KEY_NAMES
+        USB_KEYS_LOADED=false
+        _USB_LOADED_KEY_NAMES=()
         export USB_CONNECTED=false
         unset USB_INITIALIZED
         rm -f "$USB_CACHE_FILE"
@@ -1230,8 +1230,8 @@ EOF
     unset USB_SYNC_LOG
     unset USB_LOADED_PROJECTS
     unset USB_ENV
-    unset USB_KEYS_LOADED
-    unset _USB_LOADED_KEY_NAMES
+    USB_KEYS_LOADED=false
+    _USB_LOADED_KEY_NAMES=()
     export USB_CONNECTED=false
     unset USB_INITIALIZED
     rm -f "$USB_CACHE_FILE"
@@ -1897,7 +1897,14 @@ EOF
         return 0
     fi
 
+
     if ! _usb_gpg_check; then
+        return 1
+    fi
+
+    if [[ ! -d /dev/shm || ! -w /dev/shm ]]; then
+        echo "usb[ERROR]: /dev/shm is not available or not writable"
+        echo "usb: required as tmpfs for plaintext during editing"
         return 1
     fi
 
@@ -1910,6 +1917,8 @@ EOF
     local usb_init_keys_tmp_path="/dev/shm/usb_keys_init_$$"
     local usb_init_keys_editor
     local usb_init_keys_has_valid_line
+
+    trap 'shred -u "$usb_init_keys_tmp_path" 2>/dev/null; trap - RETURN' RETURN
 
     if [[ -f "$usb_init_keys_gpg_path" ]]; then
         echo "usb[ERROR]: .keys/env.gpg already exists"
@@ -2031,6 +2040,12 @@ EOF
         return 1
     fi
 
+    if [[ ! -d /dev/shm || ! -w /dev/shm ]]; then
+        echo "usb[ERROR]: /dev/shm is not available or not writable"
+        echo "usb: required as tmpfs for plaintext during editing"
+        return 1
+    fi
+
     if ! usb_verify_connected; then
         echo "usb[ERROR]: USB not connected"
         return 1
@@ -2089,9 +2104,14 @@ EOF
     # Validate: at least one KEY=value line
     usb_edit_keys_has_valid_line=false
     while IFS='=' read -r usb_edit_keys_key usb_edit_keys_value; do
+        # Strip carriage return (CRLF from Windows/NTFS round-trips)
+        usb_load_keys_key="${usb_load_keys_key%$'\r'}"
+        usb_load_keys_value="${usb_load_keys_value%$'\r'}"
+
         if [[ -z "$usb_edit_keys_key" || "$usb_edit_keys_key" == \#* ]]; then
             continue
         fi
+
         if [[ -n "$usb_edit_keys_value" ]]; then
             usb_edit_keys_has_valid_line=true
             break
@@ -2178,12 +2198,19 @@ EOF
     _USB_LOADED_KEY_NAMES=()
 
     while IFS='=' read -r usb_load_keys_key usb_load_keys_value; do
+        # Strip carriage return (CRLF from Windows/NTFS round-trips)
+        usb_load_keys_key="${usb_load_keys_key%$'\r'}"
+        usb_load_keys_value="${usb_load_keys_value%$'\r'}"
+
         if [[ -z "$usb_load_keys_key" || "$usb_load_keys_key" == \#* ]]; then
             continue
         fi
         if [[ -z "$usb_load_keys_value" ]]; then
             continue
         fi
+
+        # Note: export "$key=$value" is safe for API key values (base64 alphabet).
+        # If values with spaces, quotes, or $ are ever needed, use declare -gx instead.
         export "$usb_load_keys_key=$usb_load_keys_value"
         _USB_LOADED_KEY_NAMES+=("$usb_load_keys_key")
         usb_load_keys_count=$((usb_load_keys_count + 1))
