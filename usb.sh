@@ -64,6 +64,8 @@ USB_MANIFEST_FILENAME=".usb-manifest"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
+USB_KEYS_LOADED=false
+_USB_LOADED_KEY_NAMES=()
 
 if [[ "$1" == "force" ]]; then
     rm -f "$USB_CACHE_FILE"
@@ -1313,18 +1315,34 @@ EOF
     done
 }
 
-# usb_ps1_indicator -- PS1 rendering helper for USB connectivity
-# Returns "usb[O]" when connected, "usb[ ]" when not.
+
+# usb_ps1_indicator -- PS1 rendering helper for USB and key state
+# Returns connectivity and key-load indicators.
 # Called via $() substitution in prompt string, not a user command.
 # No -h support: runs on every prompt render, must be zero-overhead.
 usb_ps1_indicator() {
+    local usb_ps1_usb_segment
+    local usb_ps1_keys_segment
+
     if [[ "$USB_CONNECTED" == true ]]; then
-        echo "usb[O]"
+        usb_ps1_usb_segment="usb[O]"
     else
-        echo "usb[ ]"
+        usb_ps1_usb_segment="usb[ ]"
+    fi
+
+    # Only show keys segment if USB is connected or keys are loaded.
+    # Avoids cluttering prompt for sessions that never interact with keys.
+    if [[ "$USB_CONNECTED" == true || "$USB_KEYS_LOADED" == true ]]; then
+        if [[ "$USB_KEYS_LOADED" == true ]]; then
+            usb_ps1_keys_segment="keys[O]"
+        else
+            usb_ps1_keys_segment="keys[ ]"
+        fi
+        echo "${usb_ps1_usb_segment}${usb_ps1_keys_segment}"
+    else
+        echo "$usb_ps1_usb_segment"
     fi
 }
-
 
 # usb_check -- validate conf files, check referenced paths, detect config drift
 # No arguments. Requires USB_CONNECTED=true.
