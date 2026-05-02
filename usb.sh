@@ -1732,6 +1732,8 @@ _usb_gpg_check() {
     if [[ ! -f "$HOME/.gnupg/gpg-agent.conf" ]]; then
         echo "usb[ERROR]: ~/.gnupg/gpg-agent.conf not found"
         echo "usb: create it with:"
+        echo "usb:   mkdir -p ~/.gnupg/"
+        echo "usb:   touch ~/.gnupg/gpg-agent.conf"
         echo "usb:   printf '%s\\n' 'pinentry-program /usr/bin/pinentry-curses' 'allow-loopback-pinentry' > ~/.gnupg/gpg-agent.conf"
         echo "usb:   gpgconf --kill gpg-agent"
         return 1
