@@ -329,7 +329,6 @@ EOF
     return 0
 }
 
-
 # usb_commit -- stage and commit changes in a loaded project
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
@@ -354,14 +353,41 @@ EOF
     fi
     local usb_commit_project_name="$1"
     if [[ "$usb_commit_project_name" == "all" ]]; then
-        if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
-            echo "usb: no projects loaded"
+        # Build project list from in-memory loaded projects if available.
+        # Fall back to discovering projects from config files on disk.
+        # NOTE/TODO: This config-discovery pattern parallels the single-project
+        # config fallback below. If more functions need this, centralize.
+        local usb_commit_all_project_names=()
+
+        if [[ ${#USB_LOADED_PROJECTS[@]} -gt 0 ]]; then
+            usb_commit_all_project_names=("${USB_LOADED_PROJECTS[@]}")
+        else
+            local usb_commit_all_config_dir
+            usb_commit_all_config_dir="$(dirname "$USB_SCRIPT_PATH")/configs"
+            local usb_commit_all_config_file
+            for usb_commit_all_config_file in "$usb_commit_all_config_dir"/*.conf.reference; do
+                if [[ ! -f "$usb_commit_all_config_file" ]]; then
+                    continue
+                fi
+                local usb_commit_all_config_basename
+                usb_commit_all_config_basename="$(basename "$usb_commit_all_config_file")"
+                local usb_commit_all_discovered_name="${usb_commit_all_config_basename%.conf.reference}"
+                usb_commit_all_project_names+=("$usb_commit_all_discovered_name")
+            done
+            if [[ ${#usb_commit_all_project_names[@]} -gt 0 ]]; then
+                echo "usb: discovered ${#usb_commit_all_project_names[@]} project(s) from config files (none loaded in memory)"
+            fi
+        fi
+
+        if [[ ${#usb_commit_all_project_names[@]} -eq 0 ]]; then
+            echo "usb: no projects loaded and no config files found"
             return 0
         fi
+
         local usb_commit_all_project_name
         local usb_commit_success_count=0
         local usb_commit_fail_count=0
-        for usb_commit_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        for usb_commit_all_project_name in "${usb_commit_all_project_names[@]}"; do
             echo "usb: --- commit $usb_commit_all_project_name ---"
             if usb_commit "$usb_commit_all_project_name"; then
                 usb_commit_success_count=$((usb_commit_success_count + 1))
