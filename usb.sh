@@ -329,6 +329,7 @@ EOF
     return 0
 }
 
+
 # usb_commit -- stage and commit changes in a loaded project
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
@@ -375,55 +376,86 @@ EOF
         fi
         return 0
     fi
-    local usb_commit_project_name_upper
-    local usb_commit_local_dir_variable_name
-    local usb_commit_project_is_loaded
-    local usb_commit_loaded_project_name
-    local usb_commit_today
-    local usb_commit_last_message
-    local usb_commit_expected_message
+
+    # --- Single project mode ---
+
     if [[ -z "$usb_commit_project_name" ]]; then
         echo "usb[ERROR]: argument required: usb_commit <project|all>"
         echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
-    usb_commit_project_is_loaded=false
-    for usb_commit_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-        if [[ "$usb_commit_loaded_project_name" == "$usb_commit_project_name" ]]; then
-            usb_commit_project_is_loaded=true
-            break
+
+    # --- Phase 1: Resolve local directory ---
+    # Try in-memory variable first (set when project is loaded).
+    # Fall back to config file on disk if not available.
+    # NOTE/TODO: This fallback-from-config pattern is a local fix for usb_commit.
+    # If other functions need the same resilience, centralize into a shared resolver.
+
+    local usb_commit_local_dir=""
+    local usb_commit_project_name_upper="${usb_commit_project_name^^}"
+    local usb_commit_local_dir_variable_name="USB_${usb_commit_project_name_upper}_LOCAL_DIR"
+
+    if [[ -n "${!usb_commit_local_dir_variable_name}" ]]; then
+        usb_commit_local_dir="${!usb_commit_local_dir_variable_name}"
+    else
+        # Fall back to reading local_dir from the config file on disk
+        local usb_commit_config_dir
+        usb_commit_config_dir="$(dirname "$USB_SCRIPT_PATH")/configs"
+        local usb_commit_config_file_path="$usb_commit_config_dir/${usb_commit_project_name}.conf.reference"
+
+        if [[ ! -f "$usb_commit_config_file_path" ]]; then
+            echo "usb[ERROR]: project '$usb_commit_project_name' is not loaded and no config found at $usb_commit_config_file_path"
+            return 1
         fi
-    done
-    if [[ "$usb_commit_project_is_loaded" == false ]]; then
-        echo "usb[ERROR]: project '$usb_commit_project_name' is not loaded"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+
+        local usb_commit_conf_key
+        local usb_commit_conf_value
+        while IFS='=' read -r usb_commit_conf_key usb_commit_conf_value; do
+            if [[ -z "$usb_commit_conf_key" || "$usb_commit_conf_key" == \#* ]]; then
+                continue
+            fi
+            case "$usb_commit_conf_key" in
+                local_dir)
+                    usb_commit_local_dir="${usb_commit_conf_value//\{HOME\}/$HOME}"
+                    ;;
+            esac
+        done < "$usb_commit_config_file_path"
+
+        if [[ -z "$usb_commit_local_dir" ]]; then
+            echo "usb[ERROR]: could not resolve local_dir for project '$usb_commit_project_name' from config"
+            return 1
+        fi
+
+        echo "usb: [$usb_commit_project_name] resolved local dir from config (project not loaded in memory)"
+    fi
+
+    # --- Phase 2: Stage and commit ---
+
+    if [[ ! -d "$usb_commit_local_dir/.git" ]]; then
+        echo "usb[ERROR]: $usb_commit_local_dir is not a git repo"
         return 1
     fi
-    usb_commit_project_name_upper="${usb_commit_project_name^^}"
-    usb_commit_local_dir_variable_name="USB_${usb_commit_project_name_upper}_LOCAL_DIR"
-    declare -n usb_commit_local_dir_ref="$usb_commit_local_dir_variable_name"
-    if [[ ! -d "$usb_commit_local_dir_ref/.git" ]]; then
-        echo "usb[ERROR]: $usb_commit_local_dir_ref is not a git repo"
-        unset -n usb_commit_local_dir_ref
-        return 1
-    fi
-    if [[ -z "$(git -C "$usb_commit_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
+
+    if [[ -z "$(git -C "$usb_commit_local_dir" status --porcelain 2>/dev/null)" ]]; then
         echo "usb: [$usb_commit_project_name] nothing to commit"
-        unset -n usb_commit_local_dir_ref
         return 0
     fi
-    git -C "$usb_commit_local_dir_ref" add -A
+
+    git -C "$usb_commit_local_dir" add -A
+
+    local usb_commit_today
     usb_commit_today="$(date +%Y-%m-%d)"
-    usb_commit_expected_message="$usb_commit_project_name: sync $usb_commit_today"
-    usb_commit_last_message="$(git -C "$usb_commit_local_dir_ref" log -1 --format=%s 2>/dev/null)"
+    local usb_commit_expected_message="$usb_commit_project_name: sync $usb_commit_today"
+    local usb_commit_last_message
+    usb_commit_last_message="$(git -C "$usb_commit_local_dir" log -1 --format=%s 2>/dev/null)"
+
     if [[ "$usb_commit_last_message" == "$usb_commit_expected_message" ]]; then
-        git -C "$usb_commit_local_dir_ref" commit --amend --no-edit
+        git -C "$usb_commit_local_dir" commit --amend --no-edit
         echo "usb: [$usb_commit_project_name] amended today's commit"
     else
-        git -C "$usb_commit_local_dir_ref" commit -m "$usb_commit_expected_message"
+        git -C "$usb_commit_local_dir" commit -m "$usb_commit_expected_message"
         echo "usb: [$usb_commit_project_name] committed: $usb_commit_expected_message"
     fi
-    unset -n usb_commit_local_dir_ref
 }
 
 # usb_push -- push local git repo to USB bare repo
