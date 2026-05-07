@@ -1173,7 +1173,10 @@ EOF
     local usb_drive_still_present
 
     if ! usb_verify_connected; then
-        echo "usb: USB is not connected, nothing to eject"
+        echo "usb: USB is not connected, cleaning up state"
+        unset USB_INITIALIZED
+        export USB_CONNECTED=false
+        return 0
         return 0
     fi
 
