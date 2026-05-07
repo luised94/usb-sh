@@ -4,7 +4,7 @@
 # Sourced once by .bashrc. Exports USB_* variables that project modules read.
 # Project modules do not source this file; they are sourced separately by .bashrc.
 # Note: FUNCTIONS section must precede SYNC section because SYNC calls
-# _usb_run_sync_files at source time.
+# _usb_run_sync at source time.
 #
 # Usage:
 #   source /path/to/usb.sh [force]
@@ -964,9 +964,7 @@ _usb_run_sync() {
     usb_sync_files_variable_name="USB_${usb_sync_project_name_upper}_SYNC_FILES"
     declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
 
-    if [[ ${#usb_sync_files_array_ref[@]} -eq 0 ]]; then
-        echo "usb: [$usb_sync_project_name] no sync_file entries"
-    else
+    if [[ ${#usb_sync_files_array_ref[@]} -gt 0 ]]; then
         for usb_sync_entry in "${usb_sync_files_array_ref[@]}"; do
 
             # Format: source:dest:condition[:phase_ignored]
@@ -1016,9 +1014,7 @@ _usb_run_sync() {
     usb_sync_dirs_variable_name="USB_${usb_sync_project_name_upper}_SYNC_DIRS"
     declare -n usb_sync_dirs_array_ref="$usb_sync_dirs_variable_name"
 
-    if [[ ${#usb_sync_dirs_array_ref[@]} -eq 0 ]]; then
-        echo "usb: [$usb_sync_project_name] no sync_dir entries"
-    else
+    if [[ ${#usb_sync_dirs_array_ref[@]} -gt 0 ]]; then
         for usb_sync_entry in "${usb_sync_dirs_array_ref[@]}"; do
 
             # Format: source_dir:dest_dir:condition[:phase_ignored]
@@ -1206,8 +1202,7 @@ EOF
         return 0
     fi
     for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-        _usb_run_sync_files "$usb_eject_project_name" "eject"
-        _usb_run_sync_dirs "$usb_eject_project_name" "eject"
+        _usb_run_sync "$usb_eject_project_name"
     done
 
     if [[ "$PWD" == "$USB_MOUNT_POINT"* ]]; then
@@ -2360,8 +2355,7 @@ EOF
 if [[ "$USB_CONNECTED" == true ]]; then
     if [[ ${#USB_LOADED_PROJECTS[@]} -gt 0 ]]; then
         for usb_startup_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-            _usb_run_sync_files "$usb_startup_project_name" "startup"
-            _usb_run_sync_dirs "$usb_startup_project_name" "startup"
+            _usb_run_sync "$usb_startup_project_name"
         done
         unset usb_startup_project_name
 
