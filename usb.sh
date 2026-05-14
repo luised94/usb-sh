@@ -506,27 +506,33 @@ EOF
     fi
 }
 
+
 # usb_push -- push local git repo to USB bare repo
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
 # Transport only -- refuses if uncommitted changes exist.
 # Run usb_commit first to stage and commit.
 # Uses --force to handle amended commits from usb_commit.
+# Guards against overwriting unpulled commits via ancestor check.
 # Uses git -C throughout.
 # "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_push() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
-      cat <<'EOF'
+        cat <<'EOF'
 usb_push - push local git repo to USB bare repo
 Usage:
   usb_push <project>    push a specific project
   usb_push all          push all loaded projects
 Refuses if there are uncommitted changes. Run usb_commit first.
+Refuses if the bare repo has commits not in your local branch.
+Run usb_pull first to reconcile, then push again.
 Uses --force to handle amended commits.
 EOF
         return 0
     fi
+
     local usb_push_project_name="$1"
+
     if [[ "$usb_push_project_name" == "all" ]]; then
         if ! usb_verify_connected; then
             echo "usb[ERROR]: USB not connected"
@@ -554,6 +560,7 @@ EOF
         fi
         return 0
     fi
+
     local usb_push_project_name_upper
     local usb_push_local_dir_variable_name
     local usb_push_repo_path_variable_name
@@ -561,6 +568,8 @@ EOF
     local usb_push_loaded_project_name
     local usb_push_branch
     local usb_push_bare_repo_path
+    local usb_push_bare_head
+    local usb_push_rc
 
     if [[ -z "$usb_push_project_name" ]]; then
         echo "usb[ERROR]: argument required: usb_push <project|all>"
@@ -585,17 +594,20 @@ EOF
         echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
+
     usb_push_project_name_upper="${usb_push_project_name^^}"
     usb_push_local_dir_variable_name="USB_${usb_push_project_name_upper}_LOCAL_DIR"
     usb_push_repo_path_variable_name="USB_${usb_push_project_name_upper}_REPO_PATH"
     declare -n usb_push_local_dir_ref="$usb_push_local_dir_variable_name"
     declare -n usb_push_repo_path_ref="$usb_push_repo_path_variable_name"
+
     if [[ ! -e "$usb_push_local_dir_ref/.git" ]]; then
         echo "usb[ERROR]: $usb_push_local_dir_ref is not a git repo"
         unset -n usb_push_local_dir_ref
         unset -n usb_push_repo_path_ref
         return 1
     fi
+
     usb_push_bare_repo_path="$USB_MOUNT_POINT/$usb_push_repo_path_ref"
     if [[ ! -d "$usb_push_bare_repo_path" ]]; then
         echo "usb[ERROR]: bare repo not found on USB: $usb_push_bare_repo_path"
@@ -603,6 +615,7 @@ EOF
         unset -n usb_push_repo_path_ref
         return 1
     fi
+
     usb_push_branch=$(git -C "$usb_push_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
     if [[ -z "$usb_push_branch" ]]; then
         echo "usb[ERROR]: could not detect branch in $usb_push_local_dir_ref (detached HEAD?)"
@@ -618,15 +631,40 @@ EOF
         unset -n usb_push_repo_path_ref
         return 1
     fi
+
+    # guard: refuse if bare repo has commits not in local branch
+    usb_push_bare_head=$(git -C "$usb_push_bare_repo_path" rev-parse "refs/heads/$usb_push_branch" 2>/dev/null)
+    if [[ -n "$usb_push_bare_head" ]]; then
+        if ! git -C "$usb_push_local_dir_ref" cat-file -e "$usb_push_bare_head" 2>/dev/null; then
+            echo "usb[ERROR]: bare repo has commits not in local history"
+            echo "usb: the USB bare repo contains work you haven't pulled"
+            echo "usb: run usb_pull $usb_push_project_name first"
+            unset -n usb_push_local_dir_ref
+            unset -n usb_push_repo_path_ref
+            return 1
+        fi
+        if ! git -C "$usb_push_local_dir_ref" merge-base --is-ancestor "$usb_push_bare_head" HEAD 2>/dev/null; then
+            echo "usb[ERROR]: bare repo has commits not in local branch ($usb_push_branch)"
+            echo "usb: the USB bare repo is ahead - you would lose commits"
+            echo "usb: run usb_pull $usb_push_project_name first"
+            unset -n usb_push_local_dir_ref
+            unset -n usb_push_repo_path_ref
+            return 1
+        fi
+    fi
+
     git -C "$usb_push_local_dir_ref" push --force "$usb_push_bare_repo_path" "$usb_push_branch"
+    usb_push_rc=$?
     unset -n usb_push_local_dir_ref
     unset -n usb_push_repo_path_ref
+    return "$usb_push_rc"
 }
 
 # usb_pull -- pull from USB bare repo to local git repo
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
 # Refuses if uncommitted changes exist. Commit or stash manually first.
+# Uses --rebase to handle amended commits from usb_commit cleanly.
 # Uses git -C throughout.
 # "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_pull() {
@@ -637,11 +675,13 @@ Usage:
   usb_pull <project>    pull a specific project
   usb_pull all          pull all loaded projects
 Refuses if there are uncommitted changes. Commit or stash first.
+Uses --rebase to handle amended commits cleanly.
 EOF
         return 0
     fi
 
-local usb_pull_project_name="$1"
+    local usb_pull_project_name="$1"
+
     if [[ "$usb_pull_project_name" == "all" ]]; then
         if ! usb_verify_connected; then
             echo "usb[ERROR]: USB not connected"
@@ -669,6 +709,7 @@ local usb_pull_project_name="$1"
         fi
         return 0
     fi
+
     local usb_pull_project_name_upper
     local usb_pull_local_dir_variable_name
     local usb_pull_repo_path_variable_name
@@ -676,6 +717,8 @@ local usb_pull_project_name="$1"
     local usb_pull_loaded_project_name
     local usb_pull_branch
     local usb_pull_bare_repo_path
+    local usb_pull_rc
+
     if [[ -z "$usb_pull_project_name" ]]; then
         echo "usb[ERROR]: argument required: usb_pull <project|all>"
         echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
@@ -686,6 +729,7 @@ local usb_pull_project_name="$1"
         echo "usb[ERROR]: USB not connected"
         return 1
     fi
+
     usb_pull_project_is_loaded=false
     for usb_pull_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         if [[ "$usb_pull_loaded_project_name" == "$usb_pull_project_name" ]]; then
@@ -698,17 +742,20 @@ local usb_pull_project_name="$1"
         echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
+
     usb_pull_project_name_upper="${usb_pull_project_name^^}"
     usb_pull_local_dir_variable_name="USB_${usb_pull_project_name_upper}_LOCAL_DIR"
     usb_pull_repo_path_variable_name="USB_${usb_pull_project_name_upper}_REPO_PATH"
     declare -n usb_pull_local_dir_ref="$usb_pull_local_dir_variable_name"
     declare -n usb_pull_repo_path_ref="$usb_pull_repo_path_variable_name"
+
     if [[ ! -d "$usb_pull_local_dir_ref/.git" ]]; then
         echo "usb[ERROR]: $usb_pull_local_dir_ref is not a git repo"
         unset -n usb_pull_local_dir_ref
         unset -n usb_pull_repo_path_ref
         return 1
     fi
+
     usb_pull_bare_repo_path="$USB_MOUNT_POINT/$usb_pull_repo_path_ref"
     if [[ ! -d "$usb_pull_bare_repo_path" ]]; then
         echo "usb[ERROR]: bare repo not found on USB: $usb_pull_bare_repo_path"
@@ -716,6 +763,7 @@ local usb_pull_project_name="$1"
         unset -n usb_pull_repo_path_ref
         return 1
     fi
+
     if [[ -n "$(git -C "$usb_pull_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
         echo "usb[ERROR]: uncommitted changes in $usb_pull_local_dir_ref"
         echo "usb: commit or stash changes before pulling"
@@ -723,6 +771,7 @@ local usb_pull_project_name="$1"
         unset -n usb_pull_repo_path_ref
         return 1
     fi
+
     usb_pull_branch=$(git -C "$usb_pull_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
     if [[ -z "$usb_pull_branch" ]]; then
         echo "usb[ERROR]: could not detect branch in $usb_pull_local_dir_ref (detached HEAD?)"
@@ -730,9 +779,12 @@ local usb_pull_project_name="$1"
         unset -n usb_pull_repo_path_ref
         return 1
     fi
-    git -C "$usb_pull_local_dir_ref" pull "$usb_pull_bare_repo_path" "$usb_pull_branch"
+
+    git -C "$usb_pull_local_dir_ref" pull --rebase "$usb_pull_bare_repo_path" "$usb_pull_branch"
+    usb_pull_rc=$?
     unset -n usb_pull_local_dir_ref
     unset -n usb_pull_repo_path_ref
+    return "$usb_pull_rc"
 }
 
 # usb_init_bare -- create bare repo on USB for a loaded project
