@@ -331,6 +331,95 @@ fi
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
+# =============================================================
+# _usb_ensure_safe_directory
+# Ensures git safe.directory is set for a bare repo path at
+# the current mount point. Removes stale entries for the same
+# repo_path under different mount points (drive letter changed).
+# Call from LOAD after projects are loaded, or after init_bare.
+#
+# Arguments:
+#   bare_repo_path -- absolute path to bare repo (e.g. /mnt/d/repos/lab.git)
+# =============================================================
+_usb_ensure_safe_directory() {
+    local usb_esd_bare_repo_path="$1"
+    local usb_esd_repo_suffix
+    local usb_esd_existing_entry
+    local usb_esd_already_set
+
+    if [[ -z "$usb_esd_bare_repo_path" ]]; then
+        return 1
+    fi
+
+    # extract the repo-relative portion after /mnt/X/ for stale detection
+    # e.g. /mnt/d/repos/lab.git -> repos/lab.git
+    usb_esd_repo_suffix="${usb_esd_bare_repo_path#/mnt/*/}"
+
+    # remove stale entries pointing to same repo under different mount
+    while IFS= read -r usb_esd_existing_entry; do
+        if [[ -z "$usb_esd_existing_entry" ]]; then
+            continue
+        fi
+        # same suffix but different full path = stale
+        if [[ "$usb_esd_existing_entry" == *"$usb_esd_repo_suffix" \
+           && "$usb_esd_existing_entry" != "$usb_esd_bare_repo_path" ]]; then
+            git config --global --unset-all safe.directory "$usb_esd_existing_entry" 2>/dev/null
+        fi
+    done < <(git config --global --get-all safe.directory 2>/dev/null)
+
+    # check if current path already set
+    usb_esd_already_set=false
+    while IFS= read -r usb_esd_existing_entry; do
+        if [[ "$usb_esd_existing_entry" == "$usb_esd_bare_repo_path" ]]; then
+            usb_esd_already_set=true
+            break
+        fi
+    done < <(git config --global --get-all safe.directory 2>/dev/null)
+
+    if [[ "$usb_esd_already_set" == false ]]; then
+        git config --global --add safe.directory "$usb_esd_bare_repo_path"
+    fi
+}
+
+# =============================================================
+# _usb_ensure_all_safe_directories
+# Iterates loaded projects, ensures safe.directory for each.
+# Call at end of LOAD, after all projects are loaded.
+# @@TODO: Need to consolidate into the first one. Could use recursion.
+# =============================================================
+_usb_ensure_all_safe_directories() {
+    local usb_easd_project_name
+    local usb_easd_project_name_upper
+    local usb_easd_repo_path_var
+    local usb_easd_bare_repo_path
+
+    for usb_easd_project_name in "${USB_LOADED_PROJECTS[@]}"; do
+        usb_easd_project_name_upper="${usb_easd_project_name^^}"
+        usb_easd_repo_path_var="USB_${usb_easd_project_name_upper}_REPO_PATH"
+        if [[ -n "${!usb_easd_repo_path_var}" ]]; then
+            usb_easd_bare_repo_path="$USB_MOUNT_POINT/${!usb_easd_repo_path_var}"
+            if [[ -d "$usb_easd_bare_repo_path" ]]; then
+                _usb_ensure_safe_directory "$usb_easd_bare_repo_path"
+            fi
+        fi
+    done
+}
+
+# =============================================================
+# _usb_check_windows_git
+# Add before usb_init_bare. Checks if git is available via
+# PowerShell. Returns 0 if available, 1 if not.
+# @@TODO: Need to convert into accessed variable. Shouldnt change all the time.
+# =============================================================
+_usb_check_windows_git() {
+    local usb_cwg_result
+    usb_cwg_result=$(powershell.exe -NoProfile -Command "git --version" 2>/dev/null)
+    if [[ -z "$usb_cwg_result" ]]; then
+        return 1
+    fi
+    return 0
+}
+
 # usb_verify_connected -- check USB is still physically connected
 # Returns 0 if connected, 1 if not. Updates USB_CONNECTED on stale state.
 # $1 is checked for -h/--help by design; callers are users at the shell, not other functions
@@ -797,13 +886,20 @@ EOF
     return "$usb_pull_rc"
 }
 
+# =============================================================
 # usb_init_bare -- create bare repo on USB for a loaded project
 # Arguments:
 #   project_name -- name of the project as it appears in USB_LOADED_PROJECTS
 # Project must be loaded (conf exists, local_dir is a git repo).
-# Refuses if bare repo already exists on USB.
 # WSL: uses PowerShell git, adds safe.directory, pushes initial content.
 # Linux: uses git clone --bare (copies content in one step).
+# Refuses if bare repo already exists on USB.
+#   - Checks for Windows git before attempting PowerShell init
+#   - On PowerShell failure, prints manual commands
+#   - Calls _usb_ensure_safe_directory instead of raw git config
+#   - Handles retry: if bare repo dir exists but is empty/valid,
+#     skips init and attempts push only
+# =============================================================
 usb_init_bare() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
@@ -812,9 +908,11 @@ Usage:
   usb_init_bare <project>
 Project must be loaded (conf exists, local_dir is a git repo).
 Refuses if bare repo already exists on USB.
+On WSL, requires git installed on Windows (winget install Git.Git).
 EOF
         return 0
     fi
+
     local usb_init_project_name="$1"
     local usb_init_project_name_upper
     local usb_init_local_dir_variable_name
@@ -823,14 +921,19 @@ EOF
     local usb_init_loaded_project_name
     local usb_init_branch
     local usb_init_bare_repo_path
+    local usb_init_needs_init
+    local usb_init_win_path
+
     if [[ -z "$usb_init_project_name" ]]; then
         echo "usb[ERROR]: usage: usb_init_bare <project>"
         return 1
     fi
+
     if ! usb_verify_connected; then
         echo "usb[ERROR]: USB not connected"
         return 1
     fi
+
     usb_init_project_is_loaded=false
     for usb_init_loaded_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         if [[ "$usb_init_loaded_project_name" == "$usb_init_project_name" ]]; then
@@ -838,29 +941,29 @@ EOF
             break
         fi
     done
+
     if [[ "$usb_init_project_is_loaded" == false ]]; then
         echo "usb[ERROR]: project '$usb_init_project_name' is not loaded"
         echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
+
     usb_init_project_name_upper="${usb_init_project_name^^}"
     usb_init_local_dir_variable_name="USB_${usb_init_project_name_upper}_LOCAL_DIR"
     usb_init_repo_path_variable_name="USB_${usb_init_project_name_upper}_REPO_PATH"
     declare -n usb_init_local_dir_ref="$usb_init_local_dir_variable_name"
     declare -n usb_init_repo_path_ref="$usb_init_repo_path_variable_name"
+
     if [[ ! -d "$usb_init_local_dir_ref/.git" ]]; then
         echo "usb[ERROR]: $usb_init_local_dir_ref is not a git repo"
         unset -n usb_init_local_dir_ref
         unset -n usb_init_repo_path_ref
         return 1
     fi
+
     usb_init_bare_repo_path="$USB_MOUNT_POINT/$usb_init_repo_path_ref"
-    if [[ -d "$usb_init_bare_repo_path" ]]; then
-        echo "usb[ERROR]: bare repo already exists: $usb_init_bare_repo_path"
-        unset -n usb_init_local_dir_ref
-        unset -n usb_init_repo_path_ref
-        return 1
-    fi
+
+    # detect branch
     usb_init_branch=$(git -C "$usb_init_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
     if [[ -z "$usb_init_branch" ]]; then
         echo "usb[ERROR]: could not detect branch in $usb_init_local_dir_ref (detached HEAD?)"
@@ -868,31 +971,76 @@ EOF
         unset -n usb_init_repo_path_ref
         return 1
     fi
-    if [[ "$USB_ENV" == "wsl" ]]; then
-        echo "usb: creating bare repo via PowerShell..."
-        if ! powershell.exe -NoProfile -Command "git init --bare '${USB_DRIVE_LETTER}:\\${usb_init_repo_path_ref}'" 2>/dev/null; then
-            echo "usb[ERROR]: git init --bare failed"
+
+    # check if bare repo exists -- allow retry if HEAD is missing (init succeeded, push didn't)
+    usb_init_needs_init=true
+    if [[ -d "$usb_init_bare_repo_path" ]]; then
+        if [[ -f "$usb_init_bare_repo_path/HEAD" ]]; then
+            echo "usb[ERROR]: bare repo already exists: $usb_init_bare_repo_path"
             unset -n usb_init_local_dir_ref
             unset -n usb_init_repo_path_ref
             return 1
+        else
+            echo "usb: bare repo directory exists but looks incomplete, retrying push..."
+            usb_init_needs_init=false
         fi
-        git config --global --add safe.directory "$usb_init_bare_repo_path"
+    fi
+
+    if [[ "$USB_ENV" == "wsl" ]]; then
+        # build windows path for PowerShell
+        usb_init_win_path="${USB_DRIVE_LETTER}:\\${usb_init_repo_path_ref//\//\\}"
+
+        if [[ "$usb_init_needs_init" == true ]]; then
+            # check for Windows git
+            if ! _usb_check_windows_git; then
+                echo "usb[ERROR]: git not found on Windows"
+                echo "usb: install git for Windows:"
+                echo "usb:   winget install Git.Git"
+                echo "usb: then restart your terminal and retry"
+                unset -n usb_init_local_dir_ref
+                unset -n usb_init_repo_path_ref
+                return 1
+            fi
+
+            echo "usb: creating bare repo via PowerShell..."
+            if ! powershell.exe -NoProfile -Command "git init --bare '$usb_init_win_path'" 2>/dev/null; then
+                echo "usb[ERROR]: git init --bare failed via PowerShell"
+                echo "usb: run manually in PowerShell:"
+                echo "usb:   git init --bare '$usb_init_win_path'"
+                echo "usb: then re-run this command to push:"
+                echo "usb:   usb_init_bare $usb_init_project_name"
+                unset -n usb_init_local_dir_ref
+                unset -n usb_init_repo_path_ref
+                return 1
+            fi
+        fi
+
+        _usb_ensure_safe_directory "$usb_init_bare_repo_path"
+
         echo "usb: pushing $usb_init_branch to bare repo..."
         if ! git -C "$usb_init_local_dir_ref" push "$usb_init_bare_repo_path" "$usb_init_branch"; then
             echo "usb[ERROR]: initial push failed"
+            echo "usb: bare repo was created at $usb_init_win_path"
+            echo "usb: debug: try pushing manually:"
+            echo "usb:   git -C $usb_init_local_dir_ref push $usb_init_bare_repo_path $usb_init_branch"
             unset -n usb_init_local_dir_ref
             unset -n usb_init_repo_path_ref
             return 1
         fi
     else
-        echo "usb: cloning bare repo to USB..."
-        if ! git clone --bare "$usb_init_local_dir_ref" "$usb_init_bare_repo_path"; then
-            echo "usb[ERROR]: git clone --bare failed"
-            unset -n usb_init_local_dir_ref
-            unset -n usb_init_repo_path_ref
-            return 1
+        if [[ "$usb_init_needs_init" == true ]]; then
+            echo "usb: cloning bare repo to USB..."
+            if ! git clone --bare "$usb_init_local_dir_ref" "$usb_init_bare_repo_path"; then
+                echo "usb[ERROR]: git clone --bare failed"
+                unset -n usb_init_local_dir_ref
+                unset -n usb_init_repo_path_ref
+                return 1
+            fi
         fi
+
+        _usb_ensure_safe_directory "$usb_init_bare_repo_path"
     fi
+
     echo "usb: bare repo created at $usb_init_bare_repo_path"
     unset -n usb_init_local_dir_ref
     unset -n usb_init_repo_path_ref
