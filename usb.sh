@@ -227,6 +227,11 @@ if [[ "$USB_CONNECTED" == true ]]; then
             case "$usb_conf_key" in
                 local_dir)
                     usb_parsed_local_dir="${usb_conf_value//\{HOME\}/$HOME}"
+                    usb_parsed_local_dir="${usb_parsed_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                    if [[ ! -d "$usb_parsed_local_dir" ]]; then
+                        echo "WARNING: '$usb_parsed_local_dir' does not exist or is not a directory - skipping" >&2
+                        continue
+                    fi
                     ;;
                 repo_path)
                     usb_parsed_repo_path="$usb_conf_value"
@@ -465,6 +470,11 @@ EOF
             case "$usb_commit_conf_key" in
                 local_dir)
                     usb_commit_local_dir="${usb_commit_conf_value//\{HOME\}/$HOME}"
+                    usb_commit_local_dir="${usb_commit_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                    if [[ ! -d "$usb_commit_local_dir" ]]; then
+                        echo "WARNING: '$usb_commit_local_dir' does not exist or is not a directory - skipping" >&2
+                        continue
+                    fi
                     ;;
             esac
         done < "$usb_commit_config_file_path"
@@ -935,6 +945,11 @@ EOF
             case "$usb_clone_conf_key" in
                 local_dir)
                     usb_clone_local_dir="${usb_clone_conf_value//\{HOME\}/$HOME}"
+                    usb_clone_local_dir="${usb_clone_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                    if [[ ! -d "$usb_clone_local_dir" ]]; then
+                        echo "WARNING: '$usb_clone_local_dir' does not exist or is not a directory - skipping" >&2
+                        continue
+                    fi
                     ;;
                 repo_path)
                     usb_clone_repo_path="$usb_clone_conf_value"
@@ -1521,6 +1536,11 @@ EOF
             case "$usb_check_conf_key" in
                 local_dir)
                     usb_check_local_dir="${usb_check_conf_value//\{HOME\}/$HOME}"
+                    usb_check_local_dir="${usb_check_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                    if [[ ! -d "$usb_check_local_dir" ]]; then
+                        echo "WARNING: '$usb_check_local_dir' does not exist or is not a directory - skipping" >&2
+                        continue
+                    fi
                     ;;
                 repo_path)
                     usb_check_repo_path="$usb_check_conf_value"
@@ -1768,6 +1788,11 @@ SCAFFOLD
             local_dir)
                 usb_new_project_has_local_dir=true
                 usb_new_project_local_dir="${usb_new_project_conf_value//\{HOME\}/$HOME}"
+                usb_new_project_local_dir="${usb_new_project_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                if [[ ! -d "$usb_new_project_local_dir" ]]; then
+                    echo "WARNING: '$usb_new_project_local_dir' does not exist or is not a directory - skipping" >&2
+                    continue
+                fi
                 ;;
             repo_path)
                 usb_new_project_has_repo_path=true
