@@ -148,6 +148,22 @@ else
     done
 
 fi
+# Resolve Windows username for cross-platform sync paths.
+# Source: MC_WINDOWS_USER from my_config repo (expected interface).
+# Fallback: current $USER (works on single-user WSL setups).
+# Non-WSL machines: variable is set but unused (sync entries referencing
+# Windows paths will skip naturally via -nt check on missing source).
+if [[ -n "${MC_WINDOWS_USER:-}" ]]; then
+    USB_WINDOWS_USER="$MC_WINDOWS_USER"
+elif [[ -n "${USER:-}" ]]; then
+    echo "usb[WARN]: MC_WINDOWS_USER not set, falling back to \$USER ('$USER')"
+    echo "usb[WARN]: set MC_WINDOWS_USER in my_config if this is incorrect"
+    USB_WINDOWS_USER="$USER"
+else
+    echo "usb[WARN]: MC_WINDOWS_USER and USER both unset, Windows sync paths will fail"
+    USB_WINDOWS_USER=""
+fi
+export USB_WINDOWS_USER
 
 # =============================================================================
 # LOAD -- Parse .usb-manifest and .usb-projects/*.conf
@@ -178,24 +194,7 @@ if [[ "$USB_CONNECTED" == true ]]; then
         export USB_CONNECTED=false
         return 1
     fi
-    #
-    # Resolve Windows username for cross-platform sync paths.
-    # Source: MC_WINDOWS_USER from my_config repo (expected interface).
-    # Fallback: current $USER (works on single-user WSL setups).
-    # Non-WSL machines: variable is set but unused (sync entries referencing
-    # Windows paths will skip naturally via -nt check on missing source).
-    if [[ -n "${MC_WINDOWS_USER:-}" ]]; then
-        USB_WINDOWS_USER="$MC_WINDOWS_USER"
-    elif [[ -n "${USER:-}" ]]; then
-        echo "usb[WARN]: MC_WINDOWS_USER not set, falling back to \$USER ('$USER')"
-        echo "usb[WARN]: set MC_WINDOWS_USER in my_config if this is incorrect"
-        USB_WINDOWS_USER="$USER"
-    else
-        echo "usb[WARN]: MC_WINDOWS_USER and USER both unset, Windows sync paths will fail"
-        USB_WINDOWS_USER=""
-    fi
 
-    export USB_WINDOWS_USER
     export USB_MANIFEST_VERSION
     export USB_LABEL
     export USB_DEFAULT_PHASE
