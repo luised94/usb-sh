@@ -39,6 +39,15 @@
 # sync_files entry format: src:dest:condition:phase
 #   condition -- "newer" (copy if src is newer than dest)
 #   phase     -- "auto", "manual", or "always"
+# Make new git repo:
+# Connect the appropriate usb (with the file marker) and source this file.
+#   1) Create the directory for the new git repo and initialize. Use mkdir and git init or via the code module's own logic.
+#   2) Run usb_new_project <module_name>. Remove boiler plate comments and confirm locations are correct.
+#   3) Run usb_refresh function. The project should show up as loaded.
+#   4) Run usb_init_bare function. Should initialize the bare git repo and push the commit.
+#   5) Test usb_pull, usb_push and usb_commit
+#   6) Use as intended. Sync using the usb functions only.
+# NOTES: Each commit is ammended since git is mostly used for per day history and multi-machine syncing, not per-operation due to the types of repos that are usually synced via the usb.
 #
 # =============================================================================
 
