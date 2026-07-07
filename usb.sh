@@ -1498,6 +1498,11 @@ EOF
         cd ~ || return 1
     fi
 
+    # Flush filesystem write buffers before unmount. drvfs/VFAT can hold
+    # dirty pages in the write cache; unmounting without a prior sync risks
+    # data loss or a busy-target failure on removable media.
+    sync
+
     if mountpoint -q "$USB_MOUNT_POINT" 2>/dev/null; then
         echo "usb: unmounting $USB_MOUNT_POINT..."
         if ! sudo umount "$USB_MOUNT_POINT"; then

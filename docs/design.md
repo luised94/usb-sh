@@ -483,6 +483,7 @@ with those commits, not in advance.
 | Loaded-keys bookkeeping survives `usb_refresh` (force re-source) | conditional top-level init of `USB_KEYS_LOADED` / `_USB_LOADED_KEY_NAMES` | enforced |
 | Secret values preserve a trailing `=` (base64 padding) on load | first-`=` expansion split at the three keys parse sites (init/edit/load) | enforced |
 | Every eject exit leaves only machine-scope globals; drive-scope state is swept in exactly one place | `_usb_clear_state`, called from all three `usb_eject` exit paths | enforced |
+| Filesystem write buffers are flushed before unmount (drvfs/VFAT write-cache risk on removable media) | `sync` between cwd-escape and umount in `usb_eject` | documented-only |
 
 ---
 
