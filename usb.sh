@@ -1428,6 +1428,37 @@ EOF
 
 # usb_eject -- pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
 # Runs phases: auto, always (for all loaded projects before unmount)
+# _usb_clear_state -- sweep all drive-scope state after eject/removal.
+# MACHINE-SCOPE (must survive): USB_SCRIPT_PATH, USB_CACHE_FILE,
+#   USB_MANIFEST_FILENAME, USB_WINDOWS_USER, USB_ENV, _USB_PS_AVAILABLE,
+#   USB_CONNECTED (set false, not unset -- PS1 hook reads it).
+# DRIVE-SCOPE (swept here): everything below. This is the ONLY place
+# drive-scope state is cleared; eject calls it from every exit path.
+_usb_clear_state() {
+    local _usb_cs_project _usb_cs_upper
+    # [@]- guard: the yanked-USB path can reach here with the array
+    # UNSET (half-initialized state), not merely empty.
+    for _usb_cs_project in "${USB_LOADED_PROJECTS[@]-}"; do
+        [[ -n "$_usb_cs_project" ]] || continue
+        _usb_cs_upper="${_usb_cs_project^^}"
+        unset "USB_${_usb_cs_upper}_LOCAL_DIR" \
+              "USB_${_usb_cs_upper}_REPO_PATH" \
+              "USB_${_usb_cs_upper}_SYNC_FILES" \
+              "USB_${_usb_cs_upper}_SYNC_DIRS"
+    done
+    # Canonical exported name is USB_DRIVE_LETTER. Detection also leaves three
+    # top-level intermediates that must not survive eject:
+    unset USB_MOUNT_POINT USB_DRIVE_LETTER USB_LABEL \
+          USB_MANIFEST_VERSION USB_DEFAULT_PHASE USB_SYNC_LOG \
+          USB_LOADED_PROJECTS USB_INITIALIZED \
+          USB_DETECTED_DRIVE_LETTER USB_CACHED_DRIVE_LETTER \
+          USB_POTENTIAL_MOUNT_POINT
+    USB_KEYS_LOADED=false
+    _USB_LOADED_KEY_NAMES=()
+    export USB_CONNECTED=false
+    rm -f "$USB_CACHE_FILE"
+}
+
 usb_eject() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
@@ -1445,39 +1476,17 @@ EOF
     usb_unload_keys
 
     local usb_eject_project_name
-    local usb_eject_project_name_upper
     local usb_drive_still_present
 
     if ! usb_verify_connected; then
         echo "usb: USB is not connected, cleaning up state"
-        unset USB_INITIALIZED
-        export USB_CONNECTED=false
-        return 0
+        _usb_clear_state
         return 0
     fi
 
     if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
         echo "usb: USB already removed, cleaning up state"
-        for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-            usb_eject_project_name_upper="${usb_eject_project_name^^}"
-            unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
-            unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
-            unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
-            unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
-        done
-        unset USB_MOUNT_POINT
-        unset USB_DRIVE_LETTER
-        unset USB_LABEL
-        unset USB_MANIFEST_VERSION
-        unset USB_DEFAULT_PHASE
-        unset USB_SYNC_LOG
-        unset USB_LOADED_PROJECTS
-        unset USB_ENV
-        USB_KEYS_LOADED=false
-        _USB_LOADED_KEY_NAMES=()
-        export USB_CONNECTED=false
-        unset USB_INITIALIZED
-        rm -f "$USB_CACHE_FILE"
+        _usb_clear_state
         return 0
     fi
     for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
@@ -1522,28 +1531,7 @@ EOF
         echo "usb: unmounted, safe to unplug"
     fi
 
-    for usb_eject_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-        usb_eject_project_name_upper="${usb_eject_project_name^^}"
-        unset "USB_${usb_eject_project_name_upper}_LOCAL_DIR"
-        unset "USB_${usb_eject_project_name_upper}_REPO_PATH"
-        unset "USB_${usb_eject_project_name_upper}_SYNC_FILES"
-        unset "USB_${usb_eject_project_name_upper}_SYNC_DIRS"
-    done
-
-    unset USB_MOUNT_POINT
-    unset USB_DRIVE_LETTER
-    unset USB_LABEL
-    unset USB_MANIFEST_VERSION
-    unset USB_DEFAULT_PHASE
-    unset USB_SYNC_LOG
-    unset USB_LOADED_PROJECTS
-    unset USB_ENV
-    USB_KEYS_LOADED=false
-    _USB_LOADED_KEY_NAMES=()
-    export USB_CONNECTED=false
-    unset USB_INITIALIZED
-    rm -f "$USB_CACHE_FILE"
-
+    _usb_clear_state
 }
 
 # usb_refresh -- re-source usb.sh with force argument to bypass cache

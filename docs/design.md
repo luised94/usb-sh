@@ -482,6 +482,7 @@ with those commits, not in advance.
 | Every public `usb_*` function has a `-h` heredoc whose first line is `<funcname> - ...` | help-heredoc convention | documented-only until commit 11 (docs-sync) upgrades it to checked |
 | Loaded-keys bookkeeping survives `usb_refresh` (force re-source) | conditional top-level init of `USB_KEYS_LOADED` / `_USB_LOADED_KEY_NAMES` | enforced |
 | Secret values preserve a trailing `=` (base64 padding) on load | first-`=` expansion split at the three keys parse sites (init/edit/load) | enforced |
+| Every eject exit leaves only machine-scope globals; drive-scope state is swept in exactly one place | `_usb_clear_state`, called from all three `usb_eject` exit paths | enforced |
 
 ---
 
