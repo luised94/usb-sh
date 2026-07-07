@@ -480,6 +480,8 @@ with those commits, not in advance.
 | Loaded API keys are visible to child-process environments | keys load path | documented-only; UNGUARDED: accepted because keys are meant to reach child tools (git, CLIs) |
 | Editor invoked on decrypted keys must not leak plaintext to persistent tmp | editor-safety audit around `usb_edit_keys` | checked |
 | Every public `usb_*` function has a `-h` heredoc whose first line is `<funcname> - ...` | help-heredoc convention | documented-only until commit 11 (docs-sync) upgrades it to checked |
+| Loaded-keys bookkeeping survives `usb_refresh` (force re-source) | conditional top-level init of `USB_KEYS_LOADED` / `_USB_LOADED_KEY_NAMES` | enforced |
+| Secret values preserve a trailing `=` (base64 padding) on load | first-`=` expansion split at the three keys parse sites (init/edit/load) | enforced |
 
 ---
 

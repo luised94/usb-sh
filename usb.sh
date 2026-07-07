@@ -76,8 +76,12 @@ unset USB_DRIVE_LETTER
 # USB_KEYS_LOADED: true/false, whether keys are currently in environment
 # _USB_LOADED_KEY_NAMES: indexed array of variable names exported by usb_load_keys
 #   Used by usb_unload_keys to know what to unset without hardcoding key names
-USB_KEYS_LOADED=false
-_USB_LOADED_KEY_NAMES=()
+# Initialize only if unset: usb_refresh re-sources with "force", bypassing
+# the already-initialized guard. Unconditional resets here would wipe key
+# bookkeeping while the secrets remain exported in the environment, leaving
+# usb_unload_keys unable to remove them (orphaned secrets).
+: "${USB_KEYS_LOADED:=false}"
+declare -p _USB_LOADED_KEY_NAMES >/dev/null 2>&1 || _USB_LOADED_KEY_NAMES=()
 
 if [[ "$1" == "force" ]]; then
     rm -f "$USB_CACHE_FILE"
@@ -2263,8 +2267,19 @@ SCAFFOLD
 
     # Validate: at least one KEY=value line
     usb_init_keys_has_valid_line=false
-    while IFS='=' read -r usb_init_keys_key usb_init_keys_value; do
-        if [[ -z "$usb_init_keys_key" || "$usb_init_keys_key" == \#* ]]; then
+    while IFS= read -r usb_init_keys_line; do
+        usb_init_keys_line="${usb_init_keys_line%$'\r'}"
+        if [[ -z "$usb_init_keys_line" || "$usb_init_keys_line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$usb_init_keys_line" != *=* ]]; then
+            echo "usb[WARN]: skipping malformed line (no '='): $usb_init_keys_line" >&2
+            continue
+        fi
+        usb_init_keys_key="${usb_init_keys_line%%=*}"
+        usb_init_keys_value="${usb_init_keys_line#*=}"
+        if [[ ! "$usb_init_keys_key" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+            echo "usb[WARN]: skipping invalid key: $usb_init_keys_key" >&2
             continue
         fi
         if [[ -n "$usb_init_keys_value" ]]; then
@@ -2409,15 +2424,22 @@ EOF
 
     # Validate: at least one KEY=value line
     usb_edit_keys_has_valid_line=false
-    while IFS='=' read -r usb_edit_keys_key usb_edit_keys_value; do
+    while IFS= read -r usb_edit_keys_line; do
         # Strip carriage return (CRLF from Windows/NTFS round-trips)
-        usb_load_keys_key="${usb_load_keys_key%$'\r'}"
-        usb_load_keys_value="${usb_load_keys_value%$'\r'}"
-
-        if [[ -z "$usb_edit_keys_key" || "$usb_edit_keys_key" == \#* ]]; then
+        usb_edit_keys_line="${usb_edit_keys_line%$'\r'}"
+        if [[ -z "$usb_edit_keys_line" || "$usb_edit_keys_line" == \#* ]]; then
             continue
         fi
-
+        if [[ "$usb_edit_keys_line" != *=* ]]; then
+            echo "usb[WARN]: skipping malformed line (no '='): $usb_edit_keys_line" >&2
+            continue
+        fi
+        usb_edit_keys_key="${usb_edit_keys_line%%=*}"
+        usb_edit_keys_value="${usb_edit_keys_line#*=}"
+        if [[ ! "$usb_edit_keys_key" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+            echo "usb[WARN]: skipping invalid key: $usb_edit_keys_key" >&2
+            continue
+        fi
         if [[ -n "$usb_edit_keys_value" ]]; then
             usb_edit_keys_has_valid_line=true
             break
@@ -2503,12 +2525,22 @@ EOF
 
     _USB_LOADED_KEY_NAMES=()
 
-    while IFS='=' read -r usb_load_keys_key usb_load_keys_value; do
+    while IFS= read -r usb_load_keys_line; do
         # Strip carriage return (CRLF from Windows/NTFS round-trips)
-        usb_load_keys_key="${usb_load_keys_key%$'\r'}"
-        usb_load_keys_value="${usb_load_keys_value%$'\r'}"
-
-        if [[ -z "$usb_load_keys_key" || "$usb_load_keys_key" == \#* ]]; then
+        usb_load_keys_line="${usb_load_keys_line%$'\r'}"
+        if [[ -z "$usb_load_keys_line" || "$usb_load_keys_line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$usb_load_keys_line" != *=* ]]; then
+            echo "usb[WARN]: skipping malformed line (no '='): $usb_load_keys_line" >&2
+            continue
+        fi
+        # Split on the FIRST '=' via expansion, not IFS='=' read: read strips a
+        # single trailing '=' from the value, truncating base64-padded secrets.
+        usb_load_keys_key="${usb_load_keys_line%%=*}"
+        usb_load_keys_value="${usb_load_keys_line#*=}"
+        if [[ ! "$usb_load_keys_key" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+            echo "usb[WARN]: skipping invalid key: $usb_load_keys_key" >&2
             continue
         fi
         if [[ -z "$usb_load_keys_value" ]]; then
