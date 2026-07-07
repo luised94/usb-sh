@@ -22,7 +22,6 @@
 #   USB_ENV              -- "wsl" or "linux"
 #   USB_LABEL            -- human-readable USB label, from .usb-manifest
 #   USB_MANIFEST_VERSION -- integer format version, from .usb-manifest
-#   USB_DEFAULT_PHASE    -- "auto", "manual", or "always", from .usb-manifest
 #   USB_SYNC_LOG         -- absolute path to sync log file, from .usb-manifest
 #   USB_LOADED_PROJECTS  -- indexed array of loaded project names
 #   USB_DRIVE_LETTER     -- Windows drive letter for WSL eject, set if USB found on WSL
@@ -36,9 +35,9 @@
 #   USB_KBD_SYNC_FILES   -- indexed array of resolved sync_files entries
 #   USB_KBD_SYNC_DIRS    -- indexed array of resolved sync_dirs entries
 #
-# sync_files entry format: src:dest:condition:phase
-#   condition -- "newer" (copy if src is newer than dest)
-#   phase     -- "auto", "manual", or "always"
+# sync_files entry format: src:dest:condition
+#   condition -- "newer" (copy if src is newer than dest) or
+#                "differs" (copy if src and dest differ, cmp -s)
 # Make new git repo:
 # Connect the appropriate usb (with the file marker) and source this file.
 #   1) Create the directory for the new git repo and initialize. Use mkdir and git init or via the code module's own logic.
@@ -181,27 +180,38 @@ export USB_WINDOWS_USER
 # =============================================================================
 # LOAD -- Parse .usb-manifest and .usb-projects/*.conf
 # Requires: USB_CONNECTED=true
-# Sets: USB_LABEL, USB_MANIFEST_VERSION, USB_DEFAULT_PHASE, USB_SYNC_LOG,
+# Sets: USB_LABEL, USB_MANIFEST_VERSION, USB_SYNC_LOG,
 #       USB_LOADED_PROJECTS, USB_<PROJECT>_* per loaded project
 # =============================================================================
 if [[ "$USB_CONNECTED" == true ]]; then
 
     # Parse .usb-manifest as plain key-value data. File is not sourced.
     # Expected format: KEY=value, one per line. No quotes or brackets. Comments (#) and blank lines skipped.
-    while IFS='=' read -r usb_manifest_key usb_manifest_value; do
-        if [[ -z "$usb_manifest_key" || "$usb_manifest_key" == \#* ]]; then
+    while IFS= read -r usb_manifest_line; do
+        usb_manifest_line="${usb_manifest_line%$'\r'}"
+        if [[ -z "$usb_manifest_line" || "$usb_manifest_line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$usb_manifest_line" != *=* ]]; then
+            echo "usb[WARN]: skipping malformed manifest line (no '='): $usb_manifest_line" >&2
+            continue
+        fi
+        usb_manifest_key="${usb_manifest_line%%=*}"
+        usb_manifest_value="${usb_manifest_line#*=}"
+        if [[ ! "$usb_manifest_key" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+            echo "usb[WARN]: skipping invalid manifest key: $usb_manifest_key" >&2
             continue
         fi
         case "$usb_manifest_key" in
             VERSION)       USB_MANIFEST_VERSION="$usb_manifest_value" ;;
             LABEL)         USB_LABEL="$usb_manifest_value" ;;
             SYNC_LOG)      USB_SYNC_LOG="$USB_MOUNT_POINT/$usb_manifest_value" ;;
-            DEFAULT_PHASE) USB_DEFAULT_PHASE="$usb_manifest_value" ;;
             *)             echo "usb[WARN]: unknown manifest key: $usb_manifest_key" ;;
         esac
     done < "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"
     unset usb_manifest_key
     unset usb_manifest_value
+    unset usb_manifest_line
     if [[ -z "$USB_LABEL" || -z "$USB_MANIFEST_VERSION" ]]; then
         echo "usb[ERROR]: manifest missing required keys (LABEL, VERSION)"
         export USB_CONNECTED=false
@@ -210,7 +220,6 @@ if [[ "$USB_CONNECTED" == true ]]; then
 
     export USB_MANIFEST_VERSION
     export USB_LABEL
-    export USB_DEFAULT_PHASE
     export USB_SYNC_LOG
 
     USB_LOADED_PROJECTS=()
@@ -232,8 +241,19 @@ if [[ "$USB_CONNECTED" == true ]]; then
         # Token {HOME} is replaced with the runtime value of $HOME during parsing.
         # Tokens {USB_ROOT} and {LOCAL_DIR} are resolved after the loop
         # once local_dir is known.
-        while IFS='=' read -r usb_conf_key usb_conf_value; do
-            if [[ -z "$usb_conf_key" || "$usb_conf_key" == \#* ]]; then
+        while IFS= read -r usb_conf_line; do
+            usb_conf_line="${usb_conf_line%$'\r'}"
+            if [[ -z "$usb_conf_line" || "$usb_conf_line" == \#* ]]; then
+                continue
+            fi
+            if [[ "$usb_conf_line" != *=* ]]; then
+                echo "usb[WARN]: conf '$usb_project_name' skipping malformed line (no '='): $usb_conf_line" >&2
+                continue
+            fi
+            usb_conf_key="${usb_conf_line%%=*}"
+            usb_conf_value="${usb_conf_line#*=}"
+            if [[ ! "$usb_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "usb[WARN]: conf '$usb_project_name' skipping invalid key: $usb_conf_key" >&2
                 continue
             fi
             case "$usb_conf_key" in
@@ -321,6 +341,7 @@ if [[ "$USB_CONNECTED" == true ]]; then
     unset usb_parsed_sync_dirs
     unset usb_conf_key
     unset usb_conf_value
+    unset usb_conf_line
     unset usb_conf_file_path
     unset usb_project_name
     unset usb_project_name_upper
@@ -560,8 +581,20 @@ EOF
 
         local usb_commit_conf_key
         local usb_commit_conf_value
-        while IFS='=' read -r usb_commit_conf_key usb_commit_conf_value; do
-            if [[ -z "$usb_commit_conf_key" || "$usb_commit_conf_key" == \#* ]]; then
+        local usb_commit_conf_line
+        while IFS= read -r usb_commit_conf_line; do
+            usb_commit_conf_line="${usb_commit_conf_line%$'\r'}"
+            if [[ -z "$usb_commit_conf_line" || "$usb_commit_conf_line" == \#* ]]; then
+                continue
+            fi
+            if [[ "$usb_commit_conf_line" != *=* ]]; then
+                echo "usb[WARN]: skipping malformed line (no '='): $usb_commit_conf_line" >&2
+                continue
+            fi
+            usb_commit_conf_key="${usb_commit_conf_line%%=*}"
+            usb_commit_conf_value="${usb_commit_conf_line#*=}"
+            if [[ ! "$usb_commit_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "usb[WARN]: skipping invalid key: $usb_commit_conf_key" >&2
                 continue
             fi
             case "$usb_commit_conf_key" in
@@ -1064,6 +1097,7 @@ EOF
     local usb_clone_repo_path
     local usb_clone_conf_key
     local usb_clone_conf_value
+    local usb_clone_conf_line
     local usb_clone_bare_repo_path
     local usb_clone_parent_dir
     local usb_clone_branch
@@ -1081,8 +1115,19 @@ EOF
         usb_clone_repo_path=""
         usb_clone_project_name=$(basename "$usb_clone_conf_file_path" .conf)
 
-        while IFS='=' read -r usb_clone_conf_key usb_clone_conf_value; do
-            if [[ -z "$usb_clone_conf_key" || "$usb_clone_conf_key" == \#* ]]; then
+        while IFS= read -r usb_clone_conf_line; do
+            usb_clone_conf_line="${usb_clone_conf_line%$'\r'}"
+            if [[ -z "$usb_clone_conf_line" || "$usb_clone_conf_line" == \#* ]]; then
+                continue
+            fi
+            if [[ "$usb_clone_conf_line" != *=* ]]; then
+                echo "usb[WARN]: conf '$usb_clone_project_name' skipping malformed line (no '='): $usb_clone_conf_line" >&2
+                continue
+            fi
+            usb_clone_conf_key="${usb_clone_conf_line%%=*}"
+            usb_clone_conf_value="${usb_clone_conf_line#*=}"
+            if [[ ! "$usb_clone_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "usb[WARN]: conf '$usb_clone_project_name' skipping invalid key: $usb_clone_conf_key" >&2
                 continue
             fi
             case "$usb_clone_conf_key" in
@@ -1168,7 +1213,7 @@ EOF
 # Processes sync_file entries first (individual file copies), then sync_dir
 # entries (directory tree walks). All entries run unconditionally when called.
 # Condition "newer" copies only when source is newer than dest (or dest missing).
-# Sync entry format: source:dest:condition[:phase_ignored]
+# Sync entry format: source:dest:condition
 _usb_run_sync() {
     local usb_sync_project_name="$1"
     local usb_sync_project_name_upper
@@ -1178,7 +1223,6 @@ _usb_run_sync() {
     local usb_sync_source_path
     local usb_sync_dest_path
     local usb_sync_condition
-    local usb_sync_phase_ignored
     local usb_sync_dest_dir
     local usb_sync_copy_result
     local usb_sync_log_timestamp
@@ -1207,8 +1251,8 @@ _usb_run_sync() {
     if [[ ${#usb_sync_files_array_ref[@]} -gt 0 ]]; then
         for usb_sync_entry in "${usb_sync_files_array_ref[@]}"; do
 
-            # Format: source:dest:condition[:phase_ignored]
-            IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition usb_sync_phase_ignored <<< "$usb_sync_entry"
+            # Format: source:dest:condition
+            IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition <<< "$usb_sync_entry"
 
             echo "usb: [$usb_sync_project_name] evaluating entry: $usb_sync_source_path -> $usb_sync_dest_path (condition: $usb_sync_condition)"
 
@@ -1269,8 +1313,8 @@ _usb_run_sync() {
     if [[ ${#usb_sync_dirs_array_ref[@]} -gt 0 ]]; then
         for usb_sync_entry in "${usb_sync_dirs_array_ref[@]}"; do
 
-            # Format: source_dir:dest_dir:condition[:phase_ignored]
-            IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition usb_sync_phase_ignored <<< "$usb_sync_entry"
+            # Format: source_dir:dest_dir:condition
+            IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition <<< "$usb_sync_entry"
 
             if [[ "$usb_sync_condition" != "newer" ]]; then
                 echo "usb[WARN]: [$usb_sync_project_name] unknown condition '$usb_sync_condition', skipping entry"
@@ -1409,7 +1453,7 @@ EOF
 }
 
 # usb_eject -- pre-eject sync, unmount, PowerShell eject (WSL), state cleanup
-# Runs phases: auto, always (for all loaded projects before unmount)
+# Syncs all loaded projects before unmount, then unmounts and clears state.
 # _usb_clear_state -- sweep all drive-scope state after eject/removal.
 # MACHINE-SCOPE (must survive): USB_SCRIPT_PATH, USB_CACHE_FILE,
 #   USB_MANIFEST_FILENAME, USB_WINDOWS_USER, USB_ENV, _USB_PS_AVAILABLE,
@@ -1431,7 +1475,7 @@ _usb_clear_state() {
     # Canonical exported name is USB_DRIVE_LETTER. Detection also leaves three
     # top-level intermediates that must not survive eject:
     unset USB_MOUNT_POINT USB_DRIVE_LETTER USB_LABEL \
-          USB_MANIFEST_VERSION USB_DEFAULT_PHASE USB_SYNC_LOG \
+          USB_MANIFEST_VERSION USB_SYNC_LOG \
           USB_LOADED_PROJECTS USB_INITIALIZED \
           USB_DETECTED_DRIVE_LETTER USB_CACHED_DRIVE_LETTER \
           USB_POTENTIAL_MOUNT_POINT
@@ -1447,7 +1491,7 @@ usb_eject() {
 usb_eject - pre-eject sync, unmount, and clean up state
 Usage:
   usb_eject
-Syncs all loaded projects (phase: auto, always), unmounts the USB,
+Syncs all loaded projects, unmounts the USB,
 ejects the drive (WSL), and clears all USB variables.
 EOF
         return 0
@@ -1581,7 +1625,6 @@ EOF
     fi
     echo "usb: status: manifest_version=$USB_MANIFEST_VERSION"
     echo "usb: status: label=$USB_LABEL"
-    echo "usb: status: default_phase=$USB_DEFAULT_PHASE"
     echo "usb: status: sync_log=$USB_SYNC_LOG"
     for usb_status_project_name in "${USB_LOADED_PROJECTS[@]}"; do
         usb_status_project_name_upper="${usb_status_project_name^^}"
@@ -1664,11 +1707,12 @@ EOF
     local usb_check_sync_dirs
     local usb_check_conf_key
     local usb_check_conf_value
+    local usb_check_conf_line
     local usb_check_entry
     local usb_check_entry_source
     local usb_check_entry_dest
     local usb_check_entry_condition
-    local usb_check_entry_phase
+    local usb_check_entry_extra
     local usb_check_entry_dest_dir
     local usb_check_local_branch
     local usb_check_bare_branch
@@ -1694,8 +1738,19 @@ EOF
         echo "usb: check: --- $usb_check_project_name ---"
         echo "usb: check: conf=$usb_check_conf_file_path"
 
-        while IFS='=' read -r usb_check_conf_key usb_check_conf_value; do
-            if [[ -z "$usb_check_conf_key" || "$usb_check_conf_key" == \#* ]]; then
+        while IFS= read -r usb_check_conf_line; do
+            usb_check_conf_line="${usb_check_conf_line%$'\r'}"
+            if [[ -z "$usb_check_conf_line" || "$usb_check_conf_line" == \#* ]]; then
+                continue
+            fi
+            if [[ "$usb_check_conf_line" != *=* ]]; then
+                echo "usb[WARN]: check: skipping malformed line (no '='): $usb_check_conf_line" >&2
+                continue
+            fi
+            usb_check_conf_key="${usb_check_conf_line%%=*}"
+            usb_check_conf_value="${usb_check_conf_line#*=}"
+            if [[ ! "$usb_check_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+                echo "usb[WARN]: check: skipping invalid key: $usb_check_conf_key" >&2
                 continue
             fi
             case "$usb_check_conf_key" in
@@ -1764,8 +1819,12 @@ EOF
         for usb_check_entry in "${usb_check_sync_files[@]}"; do
             usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
-            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_phase <<< "$usb_check_entry"
-            echo "usb: check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition:$usb_check_entry_phase]"
+            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
+            echo "usb: check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            if [[ -n "$usb_check_entry_extra" ]]; then
+                echo "usb: check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
             if [[ -f "$usb_check_entry_source" ]]; then
                 echo "usb: check:   source exists=yes"
             else
@@ -1784,8 +1843,12 @@ EOF
         for usb_check_entry in "${usb_check_sync_dirs[@]}"; do
             usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
-            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_phase <<< "$usb_check_entry"
-            echo "usb: check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition:$usb_check_entry_phase]"
+            IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
+            echo "usb: check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            if [[ -n "$usb_check_entry_extra" ]]; then
+                echo "usb: check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
+                usb_check_errors=$((usb_check_errors + 1))
+            fi
             if [[ -d "$usb_check_entry_source" ]]; then
                 echo "usb: check:   source dir exists=yes"
             else
@@ -1874,6 +1937,7 @@ EOF
     local usb_new_project_repo_path
     local usb_new_project_conf_key
     local usb_new_project_conf_value
+    local usb_new_project_conf_line
     local usb_new_project_has_local_dir=false
     local usb_new_project_has_repo_path=false
 
@@ -1919,11 +1983,11 @@ EOF
 #   {USB_ROOT}  -> USB mount point
 #   {LOCAL_DIR} -> resolved local_dir value
 #
-# sync_file format: src:dest:condition:phase
-#   condition: newer (copy if source is newer than dest)
-#   phase: auto | manual | always
+# sync_file format: src:dest:condition
+#   condition: newer (copy if source is newer than dest) or
+#              differs (copy if source and dest differ)
 #
-# sync_dir format: src:dest:condition:phase
+# sync_dir format: src:dest:condition
 #   Same as sync_file but syncs all files in directory recursively.
 
 local_dir={HOME}/personal_repos/${usb_new_project_name}
@@ -1941,8 +2005,19 @@ SCAFFOLD
     fi
 
     # Validate conf after editor exits
-    while IFS='=' read -r usb_new_project_conf_key usb_new_project_conf_value; do
-        if [[ -z "$usb_new_project_conf_key" || "$usb_new_project_conf_key" == \#* ]]; then
+    while IFS= read -r usb_new_project_conf_line; do
+        usb_new_project_conf_line="${usb_new_project_conf_line%$'\r'}"
+        if [[ -z "$usb_new_project_conf_line" || "$usb_new_project_conf_line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$usb_new_project_conf_line" != *=* ]]; then
+            echo "usb[WARN]: skipping malformed line (no '='): $usb_new_project_conf_line" >&2
+            continue
+        fi
+        usb_new_project_conf_key="${usb_new_project_conf_line%%=*}"
+        usb_new_project_conf_value="${usb_new_project_conf_line#*=}"
+        if [[ ! "$usb_new_project_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+            echo "usb[WARN]: skipping invalid key: $usb_new_project_conf_key" >&2
             continue
         fi
         case "$usb_new_project_conf_key" in

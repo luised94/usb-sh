@@ -93,14 +93,12 @@ and global configuration (settings that apply across all projects).
 .usb-manifest
 VERSION=1
 LABEL=luised94-usb
-DEFAULT_PHASE=auto
 SYNC_LOG=.usb-sync.log
 
 | Key on disk | Exported as | Type | Purpose |
 |-------------|-------------|------|---------|
 | `VERSION` | `USB_MANIFEST_VERSION` | integer | Format version for forward-compat |
 | `LABEL` | `USB_LABEL` | string | Human-readable identifier, appears in logs |
-| `DEFAULT_PHASE` | `USB_DEFAULT_PHASE` | string enum: `auto\|manual\|always` | Fallback phase for sync entries that omit it |
 | `SYNC_LOG` | `USB_SYNC_LOG` | string, relative path | Log file for sync operations on USB |
 
 ---
@@ -130,16 +128,15 @@ sync_dir=
 
 Both `sync_file` and `sync_dir` entries use the same four-field format:
 
-source:destination:condition:phase
+source:destination:condition
 
 | Field | Type | Values | Notes |
 |-------|------|--------|-------|
 | `source` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | File path or directory path |
 | `destination` | string, path | May contain `{USB_ROOT}`, `{LOCAL_DIR}` tokens | File path or directory path |
 | `condition` | string enum | `newer` | How to decide whether to copy. Extensible - add conditions as needed. |
-| `phase` | string enum | `auto\|manual\|always` | When this entry runs. Defaults to `USB_DEFAULT_PHASE` from manifest if omitted. |
 
-Parsed via: `IFS=: read -r source destination condition phase <<< "$entry"`
+Parsed via: `IFS=: read -r source destination condition <<< "$entry"`
 
 **sync_file** (`newer` condition): copy if source file is newer than
 destination (bash `-nt` test). Destination directory must exist.
@@ -183,7 +180,6 @@ Pure bash parameter expansion. No external dependencies.
 | `USB_ENV` | string: `wsl\|linux` | Always |
 | `USB_LABEL` | string | USB found, from manifest |
 | `USB_MANIFEST_VERSION` | integer | USB found, from manifest |
-| `USB_DEFAULT_PHASE` | string | USB found, from manifest |
 | `USB_SYNC_LOG` | string, absolute path | USB found, resolved from manifest |
 | `USB_LOADED_PROJECTS` | bash indexed array | USB found, after LOAD |
 | `USB_INITIALIZED` | `true` | After successful initialization |
@@ -206,26 +202,6 @@ For a project named `kbd`, the conf exports:
 | `USB_KBD_SYNC_DIRS` | `sync_dirs` from conf, tokens resolved |
 
 Project name is uppercased via `${name^^}`.
-
----
-
-## Phase Model
-
-Three phases govern when sync entries execute:
-
-| Phase | Triggers | Use Case |
-|-------|----------|----------|
-| `auto` | Startup (USB detection) and eject | Files you always want current. Default. |
-| `manual` | Only when `usb_sync <project>` is explicitly called | Slow, risky, or timing-sensitive syncs |
-| `always` | All triggers: startup, manual, eject | Files that must be current no matter what |
-
-### Trigger  Phase Mapping
-
-| Trigger | Runs phases |
-|---------|------------|
-| Startup (SYNC phase of usb.sh init) | `auto`, `always` |
-| `usb_sync [project]` | `manual`, `always` |
-| `usb_eject` (pre-unmount) | `auto`, `always` |
 
 ---
 
@@ -281,16 +257,13 @@ Runs only if `USB_CONNECTED=true` and `USB_LOADED_PROJECTS` is non-empty.
 For each project in `USB_LOADED_PROJECTS`:
 
 1. Run `_usb_run_sync_files` with trigger `startup`:
-   a. For each `sync_file` entry, parse `src:dest:condition:phase`.
-   b. If phase is empty, use `USB_DEFAULT_PHASE`.
-   c. If phase is `auto` or `always`, execute the sync.
-   d. If condition is `newer`, test `[[ "$src" -nt "$dest" ]]`. If true,
+   a. For each `sync_file` entry, parse `src:dest:condition`.
+   b. If condition is `newer`, test `[[ "$src" -nt "$dest" ]]`. If true,
       `cp "$src" "$dest"`.
-   e. Log the operation to `USB_SYNC_LOG`.
+   c. Log the operation to `USB_SYNC_LOG`.
 2. Run `_usb_run_sync_dirs` with trigger `startup`:
-   a. For each `sync_dir` entry, parse `src_dir:dest_dir:condition:phase`.
-   b. Same phase filtering as sync_files.
-   c. If condition is `newer`, walk source tree via `find -type f`, copy
+   a. For each `sync_dir` entry, parse `src_dir:dest_dir:condition`.
+   b. If condition is `newer`, walk source tree via `find -type f`, copy
       files newer than dest counterpart. Create subdirectories as needed.
    d. Log summary (copied count, error count) to `USB_SYNC_LOG`.
 
@@ -349,13 +322,12 @@ variables - run `usb_refresh` after to reload. WSL: adds
 ### `usb_sync [project]`
 
 Manually trigger file and directory sync. If project given, sync that
-project only. Otherwise, sync all loaded projects. Runs phases: `manual`,
-`always`. Calls `_usb_run_sync_files` and `_usb_run_sync_dirs` with
-trigger `sync`.
+project only. Otherwise, sync all loaded projects. Calls
+`_usb_run_sync_files` and `_usb_run_sync_dirs` with trigger `sync`.
 
 ### `usb_eject`
 
-1. Run sync entries (phase: `auto`, `always`) for all loaded projects.
+1. Run sync entries for all loaded projects.
 2. If current directory is under `USB_MOUNT_POINT`, `cd ~`.
 3. Unmount `USB_MOUNT_POINT` if mounted.
 4. **WSL only:** remove empty mount directory, PowerShell eject verb,
@@ -374,7 +346,7 @@ Reports connection state after reload.
 
 Print diagnostic information about USB state. Shows: connection state,
 environment, mount point, drive letter (WSL), manifest version, label,
-default phase, sync log path. For each loaded project: `local_dir`,
+sync log path. For each loaded project: `local_dir`,
 `repo_path`, sync_files count, sync_dirs count. Safe to call regardless
 of connection state - prints minimal info when disconnected.
 
@@ -485,6 +457,8 @@ with those commits, not in advance.
 | Every eject exit leaves only machine-scope globals; drive-scope state is swept in exactly one place | `_usb_clear_state`, called from all three `usb_eject` exit paths | enforced |
 | Filesystem write buffers are flushed before unmount (drvfs/VFAT write-cache risk on removable media) | `sync` between cwd-escape and umount in `usb_eject` | documented-only |
 | Bare-repo divergence is rejected without data loss; reconciliation is explicit | plain (non-force) `git push` non-fast-forward refusal in `usb_push`; `usb_pull` uses `--rebase` | enforced (by git) |
+| Conf and manifest values preserve a trailing `=`; keys match a fixed whitelist | first-`=` expansion split + key regex (`^[a-z][a-z0-9_]*$` conf, `^[A-Z][A-Z0-9_]*$` manifest) at all six non-secret parse sites | enforced |
+| Sync entries are `src:dest:condition` only; a 4th (phase) field is invalid | phase model excised from parser/template/docs; `usb_check` warns on any extra field | enforced (check) |
 
 ---
 

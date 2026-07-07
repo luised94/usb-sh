@@ -6,11 +6,10 @@
 #   {USB_ROOT}  -> USB mount point
 #   {LOCAL_DIR} -> resolved local_dir value
 #
-# sync_file format: src:dest:condition:phase
+# sync_file format: src:dest:condition
 #   condition: newer (copy if source is newer than dest)
-#   phase: auto | manual | always
 #
-# sync_dir format: src:dest:condition:phase
+# sync_dir format: src:dest:condition
 #   Same as sync_file but syncs all files in directory recursively.
 
 local_dir={HOME}/personal_repos/PROJECTNAME

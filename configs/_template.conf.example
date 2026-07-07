@@ -20,9 +20,9 @@
 #   {USB_ROOT}  -> USB mount point
 #   {LOCAL_DIR} -> resolved local_dir value
 #
-# sync_file and sync_dir format: src:dest:condition:phase
+# sync_file and sync_dir format: src:dest:condition
 #   condition: newer (copy if source is newer than dest)
-#   phase: auto | manual | always (defaults to DEFAULT_PHASE from manifest)
+#   condition: newer | differs
 #
 local_dir={HOME}/personal_repos/PROJECTNAME
 repo_path=personal_repos/PROJECTNAME.git
