@@ -457,6 +457,32 @@ wrappers around `usb_push`/`usb_pull`, and the `-h`/`--help` convention.
 
 ---
 
+## Invariants and Guards
+
+This registry is the single source of truth for the assumptions usb.sh
+relies on and where each is defended. Guard types:
+
+- **enforced** - code actively rejects or corrects a violation at runtime.
+- **checked** - `usb_check` (or an audit) reports a violation but does not
+  block; the operator acts on it.
+- **documented-only** - relied upon but not verified in code. When accepted
+  as a known gap, the row is tagged `UNGUARDED: accepted because ...`.
+
+Rule: any commit that introduces a new assumption adds a row here in the
+same commit. Rows for assumptions introduced by later refactor commits land
+with those commits, not in advance.
+
+| Assumption | Guard location | Guard type |
+|---|---|---|
+| bash >= 4.3 (namerefs, `${var^^}`) | startup version check near top of usb.sh | enforced |
+| Secrets decrypted via `/dev/shm` + gpg loopback; `~/.gnupg` perms sane | keys init/load paths | enforced |
+| `MC_WINDOWS_USER` names the Windows user; `$USER` is the fallback | detection/env setup, with a warning when the fallback is taken | documented + warned |
+| Loaded API keys are visible to child-process environments | keys load path | documented-only; UNGUARDED: accepted because keys are meant to reach child tools (git, CLIs) |
+| Editor invoked on decrypted keys must not leak plaintext to persistent tmp | editor-safety audit around `usb_edit_keys` | checked |
+| Every public `usb_*` function has a `-h` heredoc whose first line is `<funcname> - ...` | help-heredoc convention | documented-only until commit 11 (docs-sync) upgrades it to checked |
+
+---
+
 ## Deferred Decisions
 
 - **Multiple USB drives.** Single drive assumed. `{USB_ROOT}` tokens
