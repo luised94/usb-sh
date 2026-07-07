@@ -468,9 +468,9 @@ usb_commit - stage and commit changes in a loaded project
 Usage:
   usb_commit <project>    commit a specific project
   usb_commit all          commit all loaded projects
-Stages all changes and commits with a daily sync message.
-If the last commit matches today's date, amends that commit
-instead of creating a new one. Skips projects with no changes.
+Stages all changes and commits with a timestamped sync message
+(<project>: sync YYYY-MM-DD HH:MM). Always creates a new commit.
+Skips projects with no changes.
 Does not require USB to be connected (local repos only).
 EOF
         return 0
@@ -595,18 +595,11 @@ EOF
     git -C "$usb_commit_local_dir" add -A
 
     local usb_commit_today
-    usb_commit_today="$(date +%Y-%m-%d)"
+    usb_commit_today="$(date '+%Y-%m-%d %H:%M')"
     local usb_commit_expected_message="$usb_commit_project_name: sync $usb_commit_today"
-    local usb_commit_last_message
-    usb_commit_last_message="$(git -C "$usb_commit_local_dir" log -1 --format=%s 2>/dev/null)"
 
-    if [[ "$usb_commit_last_message" == "$usb_commit_expected_message" ]]; then
-        git -C "$usb_commit_local_dir" commit --amend --no-edit
-        echo "usb: [$usb_commit_project_name] amended today's commit"
-    else
-        git -C "$usb_commit_local_dir" commit -m "$usb_commit_expected_message"
-        echo "usb: [$usb_commit_project_name] committed: $usb_commit_expected_message"
-    fi
+    git -C "$usb_commit_local_dir" commit -m "$usb_commit_expected_message"
+    echo "usb: [$usb_commit_project_name] committed: $usb_commit_expected_message"
 }
 
 
@@ -615,8 +608,9 @@ EOF
 #   project_name -- name of the project, or "all" for all loaded projects
 # Transport only -- refuses if uncommitted changes exist.
 # Run usb_commit first to stage and commit.
-# Uses --force to handle amended commits from usb_commit.
-# Guards against overwriting unpulled commits via ancestor check.
+# Plain push (no --force): git's native non-fast-forward refusal rejects a
+# push when the bare repo has commits the local branch lacks. On failure we
+# suggest usb_pull to reconcile.
 # Uses git -C throughout.
 # "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_push() {
@@ -627,9 +621,8 @@ Usage:
   usb_push <project>    push a specific project
   usb_push all          push all loaded projects
 Refuses if there are uncommitted changes. Run usb_commit first.
-Refuses if the bare repo has commits not in your local branch.
-Run usb_pull first to reconcile, then push again.
-Uses --force to handle amended commits.
+If the bare repo has commits not in your local branch, git refuses
+the non-fast-forward push. Run usb_pull first to reconcile, then push.
 EOF
         return 0
     fi
@@ -671,7 +664,6 @@ EOF
     local usb_push_loaded_project_name
     local usb_push_branch
     local usb_push_bare_repo_path
-    local usb_push_bare_head
     local usb_push_rc
 
     if [[ -z "$usb_push_project_name" ]]; then
@@ -735,39 +727,29 @@ EOF
         return 1
     fi
 
-    # guard: refuse if bare repo has commits not in local branch
-    usb_push_bare_head=$(git -C "$usb_push_bare_repo_path" rev-parse "refs/heads/$usb_push_branch" 2>/dev/null)
-    if [[ -n "$usb_push_bare_head" ]]; then
-        if ! git -C "$usb_push_local_dir_ref" cat-file -e "$usb_push_bare_head" 2>/dev/null; then
-            echo "usb[ERROR]: bare repo has commits not in local history"
-            echo "usb: the USB bare repo contains work you haven't pulled"
-            echo "usb: run usb_pull $usb_push_project_name first"
-            unset -n usb_push_local_dir_ref
-            unset -n usb_push_repo_path_ref
-            return 1
-        fi
-        if ! git -C "$usb_push_local_dir_ref" merge-base --is-ancestor "$usb_push_bare_head" HEAD 2>/dev/null; then
-            echo "usb[ERROR]: bare repo has commits not in local branch ($usb_push_branch)"
-            echo "usb: the USB bare repo is ahead - you would lose commits"
-            echo "usb: run usb_pull $usb_push_project_name first"
-            unset -n usb_push_local_dir_ref
-            unset -n usb_push_repo_path_ref
-            return 1
-        fi
-    fi
-
-    git -C "$usb_push_local_dir_ref" push --force "$usb_push_bare_repo_path" "$usb_push_branch"
+    # No hand-rolled divergence guard: a plain (non-force) push makes git
+    # refuse a non-fast-forward update natively. On any push failure, suggest
+    # usb_pull to reconcile. Capture git's real exit code directly -- inside
+    # the then-block of `if ! cmd`, $? would already be reset to 0.
+    git -C "$usb_push_local_dir_ref" push "$usb_push_bare_repo_path" "$usb_push_branch"
     usb_push_rc=$?
+    if [[ "$usb_push_rc" -ne 0 ]]; then
+        echo "usb[ERROR]: push failed for $usb_push_project_name"
+        echo "usb: if the bare repo is ahead, run usb_pull $usb_push_project_name first, then push again"
+        unset -n usb_push_local_dir_ref
+        unset -n usb_push_repo_path_ref
+        return "$usb_push_rc"
+    fi
     unset -n usb_push_local_dir_ref
     unset -n usb_push_repo_path_ref
-    return "$usb_push_rc"
+    return 0
 }
 
 # usb_pull -- pull from USB bare repo to local git repo
 # Arguments:
 #   project_name -- name of the project, or "all" for all loaded projects
 # Refuses if uncommitted changes exist. Commit or stash manually first.
-# Uses --rebase to handle amended commits from usb_commit cleanly.
+# Uses --rebase to reconcile local and bare divergence cleanly.
 # Uses git -C throughout.
 # "all" mode uses skip-and-continue: failures in one project do not stop others.
 usb_pull() {
@@ -778,7 +760,7 @@ Usage:
   usb_pull <project>    pull a specific project
   usb_pull all          pull all loaded projects
 Refuses if there are uncommitted changes. Commit or stash first.
-Uses --rebase to handle amended commits cleanly.
+Uses --rebase to reconcile divergence cleanly.
 EOF
         return 0
     fi

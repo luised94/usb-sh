@@ -484,6 +484,7 @@ with those commits, not in advance.
 | Secret values preserve a trailing `=` (base64 padding) on load | first-`=` expansion split at the three keys parse sites (init/edit/load) | enforced |
 | Every eject exit leaves only machine-scope globals; drive-scope state is swept in exactly one place | `_usb_clear_state`, called from all three `usb_eject` exit paths | enforced |
 | Filesystem write buffers are flushed before unmount (drvfs/VFAT write-cache risk on removable media) | `sync` between cwd-escape and umount in `usb_eject` | documented-only |
+| Bare-repo divergence is rejected without data loss; reconciliation is explicit | plain (non-force) `git push` non-fast-forward refusal in `usb_push`; `usb_pull` uses `--rebase` | enforced (by git) |
 
 ---
 
