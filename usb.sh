@@ -2432,7 +2432,7 @@ SCAFFOLD
 #   usb_load_keys    - decrypt and export as environment variables
 #   usb_unload_keys  - remove keys from environment
 #   usb_keys_status  - show current key state
-#   usb_shutdown     - unload keys, eject USB, kill tmux
+#   usb_shutdown     - unload keys and eject USB
 #
 # Security:
 #   - Plaintext only exists on /dev/shm (tmpfs, RAM-only) during editing
@@ -2744,17 +2744,19 @@ EOF
     echo "usb: keys: gpg_loopback=$usb_keys_status_gpg_loopback"
 }
 
-# usb_shutdown -- unload keys, eject USB, kill tmux
-# Does NOT call exit. Tmux kill-server ends all panes.
-# In a bare terminal, user lands at a clean prompt.
+# usb_shutdown -- unload keys and eject USB (this module's session teardown).
+# Does NOT call exit and does NOT kill tmux: session-lifecycle policy lives in
+# the user's shell, not this module. Compose it in ~/.bashrc if wanted, e.g.:
+#   session_end() { usb_shutdown && tmux kill-server; }
 usb_shutdown() {
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<'EOF'
-usb_shutdown - full session teardown
+usb_shutdown - unload keys and eject USB
 Usage:
   usb_shutdown
-Unloads keys, ejects USB (if connected), kills tmux server.
-Does not call exit. In a bare terminal, returns to prompt.
+Unloads keys and ejects USB (if connected). Does not call exit and does not
+kill tmux. To also end a tmux session, compose in ~/.bashrc:
+  session_end() { usb_shutdown && tmux kill-server; }
 EOF
         return 0
     fi
@@ -2764,8 +2766,6 @@ EOF
     if [[ "$USB_CONNECTED" == true ]]; then
         usb_eject
     fi
-
-    tmux kill-server 2>/dev/null
 }
 
 # =============================================================================

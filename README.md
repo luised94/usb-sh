@@ -44,6 +44,14 @@ including the loading architecture and `.bashrc` integration.
 
 For architecture and schema details, see [docs/design.md](docs/design.md).
 
+## Session teardown
+
+`usb_shutdown` unloads keys and ejects the USB. It deliberately does not end
+your terminal or kill tmux -- session-lifecycle policy belongs in your shell,
+not this module. To tear down the session as well, compose it in `~/.bashrc`:
+
+    session_end() { usb_shutdown && tmux kill-server; }
+
 ## Adding a New Project
 
 Run `usb_new_project <name>` for an interactive scaffold that creates the
