@@ -434,9 +434,16 @@ _usb_ensure_safe_directory() {
         return 1
     fi
 
-    # extract the repo-relative portion after /mnt/X/ for stale detection
+    # extract the repo-relative portion after the mount prefix for stale
+    # detection. Three mount shapes: WSL /mnt/<letter>/, udisks
+    # /media/<user>/<label>/, and /run/media/<user>/<label>/. Only the
+    # matching prefix strips (the others are no-ops), so a drive that
+    # remounts under any of these forms is still recognized as the same repo.
     # e.g. /mnt/d/repos/lab.git -> repos/lab.git
-    usb_esd_repo_suffix="${usb_esd_bare_repo_path#/mnt/*/}"
+    usb_esd_repo_suffix="$usb_esd_bare_repo_path"
+    usb_esd_repo_suffix="${usb_esd_repo_suffix#/mnt/*/}"
+    usb_esd_repo_suffix="${usb_esd_repo_suffix#/media/*/*/}"
+    usb_esd_repo_suffix="${usb_esd_repo_suffix#/run/media/*/*/}"
 
     # remove stale entries pointing to same repo under different mount
     while IFS= read -r usb_esd_existing_entry; do

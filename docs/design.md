@@ -462,6 +462,7 @@ with those commits, not in advance.
 | PowerShell interop reports honest exit codes and cannot hang the shell indefinitely | `_usb_ps` wrapper: `$ErrorActionPreference='Stop'` + try/catch (PS-side errors -> rc 1), native callers append `; exit $LASTEXITCODE`, `timeout 10` maps interop hang -> rc 124 | enforced |
 | At most one manifest-bearing WSL volume; ambiguity is never resolved by guessing | detection counts drive letters returned by `_usb_ps`; more than one aborts the source with an error, one per line (decision 5) | enforced |
 | Drive-letter cache lives under a per-user XDG path, not a predictable world-readable `/tmp` location | `USB_CACHE_FILE` = `${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/drive_letter`; parent dir created before the write | enforced |
+| Stale `safe.directory` entries for a repo under a prior mount are removed when it remounts elsewhere | `_usb_ensure_safe_directory` strips the mount prefix for WSL (`/mnt/*/`) and udisks (`/media/*/*/`, `/run/media/*/*/`), then unsets entries sharing the repo suffix but a different full path | enforced |
 
 ---
 
