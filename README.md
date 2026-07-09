@@ -71,3 +71,15 @@ Run `usb_new_project <name>` for an interactive scaffold that creates the
 conf file on the USB. Then run `usb_init_bare <name>` to create the bare
 repo. See [docs/module-template.sh](docs/module-template.sh) for the
 module integration pattern.
+
+## Development
+
+The function table under Quick Reference is generated from each function's
+`-h` help by `dev/docs-sync.sh`. After editing help text, regenerate it:
+
+    dev/docs-sync.sh --write
+
+Enable the versioned pre-commit hook once per clone so a stale table (or a
+malformed help line) blocks the commit:
+
+    git config core.hooksPath dev/hooks

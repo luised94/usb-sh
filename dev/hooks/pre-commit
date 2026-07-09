@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Versioned pre-commit hook. Enable once with:
+#   git config core.hooksPath dev/hooks
+#
+# Blocks a commit when the README function table is out of sync with the
+# usb.sh -h help text, or when docs-sync finds a structural problem. Fix with:
+#   dev/docs-sync.sh --write   (then re-stage README.md)
+set -u
+
+usb_hook_repo_root=$(git rev-parse --show-toplevel) || exit 1
+
+if ! "$usb_hook_repo_root/dev/docs-sync.sh" --check; then
+    echo "pre-commit: README function table is out of sync." >&2
+    echo "pre-commit: run 'dev/docs-sync.sh --write' and re-stage README.md." >&2
+    exit 1
+fi
