@@ -10,32 +10,43 @@ operations across WSL and Linux.
 All functions support `-h` for usage help.
 
 | Function | Purpose |
-|----------|---------|
-| `usb_push <project>` | Push current branch to USB bare repo |
-| `usb_pull <project>` | Pull current branch from USB bare repo |
-| `usb_sync [project]` | Run manual-phase file and directory sync entries |
-| `usb_eject` | Sync, unmount, and eject USB |
-| `usb_status` | Print USB connection state and per-project details |
-| `usb_check` | Validate confs, paths, git remotes, and branch consistency |
-| `usb_new_project <name>` | Create new project conf file via editor scaffold |
-| `usb_init_bare <project>` | Create bare repo on USB for a loaded project |
-| `usb_clone_all` | Clone all USB bare repos to local directories |
-| `usb_refresh` | Re-detect USB and reload all project configurations |
-| `usb_verify_connected` | Check USB is still physically accessible |
+| --- | --- |
+| `usb_verify_connected` | check USB is still physically connected |
+| `usb_commit` | stage and commit changes in a loaded project |
+| `usb_push` | push local git repo to USB bare repo |
+| `usb_pull` | pull from USB bare repo to local git repo |
+| `usb_init_bare` | create bare repo on USB for a loaded project |
+| `usb_clone_all` | clone all bare repos from USB to local directories |
+| `usb_sync` | manually trigger file sync for one or all loaded projects |
+| `usb_eject` | pre-eject sync, unmount, and clean up state |
+| `usb_refresh` | re-detect USB and reload all project configurations |
+| `usb_status` | print diagnostic information about USB state |
+| `usb_check` | validate conf files, check paths, and detect config drift |
+| `usb_new_project` | create a new project configuration file |
+| `usb_init_keys` | create encrypted API key file on USB |
+| `usb_edit_keys` | edit the encrypted API key file |
+| `usb_load_keys` | load encrypted API keys into environment |
+| `usb_unload_keys` | remove API keys from environment |
+| `usb_keys_status` | show API key management state |
+| `usb_shutdown` | unload keys and eject USB |
 
 ## Repository Structure
 usb.sh                              Main module
 README.md                           This file
 docs/
-    design.md                         Architecture, schema, phase model
+    design.md                         Architecture, schema, and invariants
     usb-setup.md                      Operational reference and setup steps
     module-template.sh                Integration template for new project modules
     initial-usb-setup.md              Historical: initial USB setup log
     implementation-plan.md            Historical: original 7-phase build plan
     deferred-and-monitoring.md        Active: deferred items, monitoring, triggers
 configs/
+    _template.conf.example            Template for scaffolding new project confs
+    finance.conf.reference            Reference copy of finance project configuration
+    friction.conf.reference           Reference copy of friction project configuration
     kbd.conf.reference                Reference copy of kbd project configuration
-    finances.conf.reference           Reference copy of finances project configuration
+    lab.conf.reference                Reference copy of lab project configuration
+    tasks.conf.reference              Reference copy of tasks project configuration
 
 ## Setup
 
