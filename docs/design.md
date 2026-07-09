@@ -460,6 +460,7 @@ with those commits, not in advance.
 | Conf and manifest values preserve a trailing `=`; keys match a fixed whitelist | first-`=` expansion split + key regex (`^[a-z][a-z0-9_]*$` conf, `^[A-Z][A-Z0-9_]*$` manifest) at all six non-secret parse sites | enforced |
 | Sync entries are `src:dest:condition` only; a 4th (phase) field is invalid | phase model excised from parser/template/docs; `usb_check` warns on any extra field | enforced (check) |
 | PowerShell interop reports honest exit codes and cannot hang the shell indefinitely | `_usb_ps` wrapper: `$ErrorActionPreference='Stop'` + try/catch (PS-side errors -> rc 1), native callers append `; exit $LASTEXITCODE`, `timeout 10` maps interop hang -> rc 124 | enforced |
+| At most one manifest-bearing WSL volume; ambiguity is never resolved by guessing | detection counts drive letters returned by `_usb_ps`; more than one aborts the source with an error, one per line (decision 5) | enforced |
 
 ---
 

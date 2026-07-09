@@ -153,14 +153,27 @@ if [[ "$USB_ENV" == "wsl" ]]; then
     fi
 
     if [[ "$USB_CONNECTED" == false ]]; then
-        if command -v powershell.exe > /dev/null 2>&1; then
+        if [[ "$_USB_PS_AVAILABLE" == true ]]; then
             # Intentional quote-break: splicing $USB_MANIFEST_FILENAME into single-quoted PowerShell block
             # shellcheck disable=SC2016,SC1003
-            USB_DETECTED_DRIVE_LETTER=$(powershell.exe -NoProfile -Command '
+            USB_DETECTED_DRIVE_LETTER=$(_usb_ps '
                 Get-Volume | Where-Object {
                   $_.DriveLetter -and (Test-Path "$($_.DriveLetter):\'"$USB_MANIFEST_FILENAME"'")
                 } | Select-Object -ExpandProperty DriveLetter
-            ' 2>/dev/null | tr -d '\r')
+            ')
+
+            # Multi-volume hard error (decision 5): more than one manifest-bearing
+            # volume means we cannot know which to mount. This runs at source time,
+            # so returning here aborts the source; the user removes a drive and
+            # re-sources. A _usb_ps failure yields an empty result and falls through
+            # (USB stays disconnected), preserving the prior best-effort behavior.
+            USB_DETECTED_DRIVE_LETTER=$(printf '%s\n' "$USB_DETECTED_DRIVE_LETTER" | sed '/^$/d')
+            if [[ $(printf '%s\n' "$USB_DETECTED_DRIVE_LETTER" | wc -l) -gt 1 ]]; then
+                echo "usb[ERROR]: multiple manifest-bearing volumes detected:" >&2
+                printf '%s\n' "$USB_DETECTED_DRIVE_LETTER" >&2
+                echo "usb[ERROR]: refusing to guess; remove one and re-source" >&2
+                return 1
+            fi
 
             if [[ -n "$USB_DETECTED_DRIVE_LETTER" ]]; then
                 export USB_DRIVE_LETTER="$USB_DETECTED_DRIVE_LETTER"
@@ -482,7 +495,9 @@ _usb_ensure_all_safe_directories() {
 # =============================================================
 _usb_check_windows_git() {
     local usb_cwg_result
-    usb_cwg_result=$(powershell.exe -NoProfile -Command "git --version" 2>/dev/null)
+    # Probe: git may legitimately be absent on Windows, so suppress the
+    # wrapper's failure diagnostic here; an empty result means "return 1".
+    usb_cwg_result=$(_usb_ps "git --version; exit \$LASTEXITCODE" 2>/dev/null)
     if [[ -z "$usb_cwg_result" ]]; then
         return 1
     fi
@@ -1062,7 +1077,7 @@ EOF
             fi
 
             echo "usb: creating bare repo via PowerShell..."
-            if ! powershell.exe -NoProfile -Command "git init --bare '$usb_init_win_path'" 2>/dev/null; then
+            if ! _usb_ps "git init --bare '$usb_init_win_path'; exit \$LASTEXITCODE"; then
                 echo "usb[ERROR]: git init --bare failed via PowerShell"
                 echo "usb: run manually in PowerShell:"
                 echo "usb:   git init --bare '$usb_init_win_path'"
@@ -1586,11 +1601,10 @@ EOF
 
         if [[ -n "$USB_DRIVE_LETTER" ]]; then
             echo "usb: ejecting ${USB_DRIVE_LETTER}: from Windows..."
-            powershell.exe -NoProfile -Command "
+            _usb_ps "
                 (New-Object -ComObject Shell.Application).NameSpace(17).ParseName('${USB_DRIVE_LETTER}:').InvokeVerb('Eject')
-            " 2>/dev/null
-            sleep 2
-            usb_drive_still_present=$(powershell.exe -NoProfile -Command "Test-Path '${USB_DRIVE_LETTER}:'" 2>/dev/null | tr -d '\r')
+            "
+            usb_drive_still_present=$(_usb_ps "Test-Path '${USB_DRIVE_LETTER}:'")
             if [[ "$usb_drive_still_present" == "True" ]]; then
                 echo "usb[WARN]: Windows did not eject the drive, it may still be busy"
             else
