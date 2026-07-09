@@ -218,7 +218,7 @@ bash requires a function to be defined before the line that calls it.
 1. Set `USB_CONNECTED=false`, unset `USB_MOUNT_POINT`.
 2. If `force` argument passed, delete cache file.
 3. Detect environment  set `USB_ENV`.
-4. **WSL fast path:** read `/tmp/usb_drive_cache`. If cached drive letter's mount point contains `.usb-manifest`, set `USB_MOUNT_POINT`, `USB_CONNECTED=true`.
+4. **WSL fast path:** read the cached drive letter from `$USB_CACHE_FILE` (`${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/`). If the cached drive letter's mount point contains `.usb-manifest`, set `USB_MOUNT_POINT`, `USB_CONNECTED=true`.
 5. **WSL slow path:** if fast path missed, run PowerShell `Get-Volume` scan looking for `.usb-manifest`. If found, set drive letter, mount if needed, update cache.
 6. **Linux path:** scan `/mnt/*`, `/media/$USER/*`, `/run/media/$USER/*` for `.usb-manifest`.
 
@@ -461,6 +461,7 @@ with those commits, not in advance.
 | Sync entries are `src:dest:condition` only; a 4th (phase) field is invalid | phase model excised from parser/template/docs; `usb_check` warns on any extra field | enforced (check) |
 | PowerShell interop reports honest exit codes and cannot hang the shell indefinitely | `_usb_ps` wrapper: `$ErrorActionPreference='Stop'` + try/catch (PS-side errors -> rc 1), native callers append `; exit $LASTEXITCODE`, `timeout 10` maps interop hang -> rc 124 | enforced |
 | At most one manifest-bearing WSL volume; ambiguity is never resolved by guessing | detection counts drive letters returned by `_usb_ps`; more than one aborts the source with an error, one per line (decision 5) | enforced |
+| Drive-letter cache lives under a per-user XDG path, not a predictable world-readable `/tmp` location | `USB_CACHE_FILE` = `${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/drive_letter`; parent dir created before the write | enforced |
 
 ---
 

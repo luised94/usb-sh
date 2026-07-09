@@ -67,7 +67,7 @@ fi
 # Sets: USB_CONNECTED, USB_MOUNT_POINT, USB_ENV, USB_DRIVE_LETTER
 # =============================================================================
 
-USB_CACHE_FILE="/tmp/usb_drive_cache"
+USB_CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/drive_letter"
 USB_MANIFEST_FILENAME=".usb-manifest"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
@@ -178,6 +178,7 @@ if [[ "$USB_ENV" == "wsl" ]]; then
             if [[ -n "$USB_DETECTED_DRIVE_LETTER" ]]; then
                 export USB_DRIVE_LETTER="$USB_DETECTED_DRIVE_LETTER"
                 export USB_MOUNT_POINT="/mnt/${USB_DETECTED_DRIVE_LETTER,,}"
+                mkdir -p "${USB_CACHE_FILE%/*}" 2>/dev/null
                 echo "$USB_DETECTED_DRIVE_LETTER" > "$USB_CACHE_FILE"
 
                 if [[ ! -d "$USB_MOUNT_POINT" ]]; then
