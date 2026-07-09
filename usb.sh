@@ -1296,6 +1296,7 @@ _usb_run_sync() {
     local usb_sync_copy_count
     local usb_sync_error_count
     local usb_sync_symlink_count
+    local usb_sync_should_copy
 
     if [[ -z "$usb_sync_project_name" ]]; then
         _usb_err "_usb_run_sync requires a project name argument"
@@ -1343,6 +1344,29 @@ _usb_run_sync() {
                     _usb_msg "[$usb_sync_project_name] skipping (source not newer): $usb_sync_source_path"
 
                 fi
+            elif [[ "$usb_sync_condition" == "differs" ]]; then
+                # cmp -s: identical -> skip; differ or dest missing -> copy.
+                # Source missing is a graceful skip (parallels -nt for "newer").
+                if [[ ! -e "$usb_sync_source_path" ]]; then
+                    _usb_msg "[$usb_sync_project_name] skipping (source does not exist): $usb_sync_source_path"
+                elif cmp -s "$usb_sync_source_path" "$usb_sync_dest_path"; then
+                    _usb_msg "[$usb_sync_project_name] skipping (identical): $usb_sync_source_path"
+                else
+                    usb_sync_dest_dir=$(dirname "$usb_sync_dest_path")
+                    if [[ ! -d "$usb_sync_dest_dir" ]]; then
+                        _usb_err "[$usb_sync_project_name] dest directory does not exist: $usb_sync_dest_dir"
+                        usb_sync_copy_result="ERROR"
+                    else
+
+                        _usb_msg "[$usb_sync_project_name] copying (differs): $usb_sync_source_path -> $usb_sync_dest_path"
+                        if cp "$usb_sync_source_path" "$usb_sync_dest_path"; then
+                            usb_sync_copy_result="OK"
+                        else
+                            usb_sync_copy_result="ERROR"
+                        fi
+
+                    fi
+                fi
             else
 
                 _usb_warn "[$usb_sync_project_name] unknown condition '$usb_sync_condition', skipping entry"
@@ -1378,7 +1402,7 @@ _usb_run_sync() {
             # Format: source_dir:dest_dir:condition
             IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition <<< "$usb_sync_entry"
 
-            if [[ "$usb_sync_condition" != "newer" ]]; then
+            if [[ "$usb_sync_condition" != "newer" && "$usb_sync_condition" != "differs" ]]; then
                 _usb_warn "[$usb_sync_project_name] unknown condition '$usb_sync_condition', skipping entry"
                 continue
             fi
@@ -1416,9 +1440,18 @@ _usb_run_sync() {
                     continue
                 fi
 
-                if [[ "$usb_sync_source_file_path" -nt "$usb_sync_dest_file_path" ]]; then
+                usb_sync_should_copy=false
+                if [[ "$usb_sync_condition" == "newer" ]]; then
+                    [[ "$usb_sync_source_file_path" -nt "$usb_sync_dest_file_path" ]] && usb_sync_should_copy=true
+                else
+                    # differs (guaranteed by the guard above): copy when the files
+                    # differ or dest is missing; cmp -s is quiet and non-zero for both.
+                    cmp -s "$usb_sync_source_file_path" "$usb_sync_dest_file_path" || usb_sync_should_copy=true
+                fi
 
-                    _usb_msg "[$usb_sync_project_name] copying (newer): $usb_sync_relative_path"
+                if [[ "$usb_sync_should_copy" == true ]]; then
+
+                    _usb_msg "[$usb_sync_project_name] copying ($usb_sync_condition): $usb_sync_relative_path"
 
                     usb_sync_dest_file_dir=$(dirname "$usb_sync_dest_file_path")
                     if [[ ! -d "$usb_sync_dest_file_dir" ]]; then
