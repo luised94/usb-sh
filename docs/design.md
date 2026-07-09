@@ -210,7 +210,7 @@ Project name is uppercased via `${name^^}`.
 
 Linear, not wrapped in functions. Four sections delimited by comments.
 Section order is FIND  LOAD  FUNCTIONS  SYNC. FUNCTIONS must precede
-SYNC because the SYNC section calls `_usb_run_sync_files` at source time -
+SYNC because the SYNC section calls `_usb_run_sync` at source time -
 bash requires a function to be defined before the line that calls it.
 
 ### FIND
@@ -254,14 +254,14 @@ Runs only if `USB_CONNECTED=true`.
 
 Runs only if `USB_CONNECTED=true` and `USB_LOADED_PROJECTS` is non-empty.
 
-For each project in `USB_LOADED_PROJECTS`:
+For each project in `USB_LOADED_PROJECTS`, call `_usb_run_sync`, which:
 
-1. Run `_usb_run_sync_files` with trigger `startup`:
+1. Processes each `sync_file` entry:
    a. For each `sync_file` entry, parse `src:dest:condition`.
    b. If condition is `newer`, test `[[ "$src" -nt "$dest" ]]`. If true,
       `cp "$src" "$dest"`.
    c. Log the operation to `USB_SYNC_LOG`.
-2. Run `_usb_run_sync_dirs` with trigger `startup`:
+2. Processes each `sync_dir` entry:
    a. For each `sync_dir` entry, parse `src_dir:dest_dir:condition`.
    b. If condition is `newer`, walk source tree via `find -type f`, copy
       files newer than dest counterpart. Create subdirectories as needed.
@@ -323,7 +323,7 @@ variables - run `usb_refresh` after to reload. WSL: adds
 
 Manually trigger file and directory sync. If project given, sync that
 project only. Otherwise, sync all loaded projects. Calls
-`_usb_run_sync_files` and `_usb_run_sync_dirs` with trigger `sync`.
+`_usb_run_sync` for the target project(s).
 
 ### `usb_eject`
 
@@ -335,6 +335,10 @@ project only. Otherwise, sync all loaded projects. Calls
 5. **State cleanup:** unset all `USB_${proj}_*` per-project variables,
    unset global USB variables, set `USB_CONNECTED=false`, unset
    `USB_INITIALIZED`, delete cache file.
+
+Functions and the PS1 hook intentionally persist after eject (they are
+not part of the drive-scope sweep), so `usb_refresh` still works while
+the USB is disconnected.
 
 ### `usb_refresh`
 
@@ -384,30 +388,27 @@ on USB, opens `$EDITOR`, validates required keys (`local_dir`,
 `repo_path`) after editor exits. Atomic move from `.tmp` to `.conf` on
 success. Run `usb_refresh` to load the new project.
 
-### `_usb_run_sync_files <project_name> <trigger_label>`
+### `_usb_run_sync <project_name>`
 
-Internal. Execute `sync_file` entries for a project, filtered by
-trigger. Trigger-to-phase mapping:
+Internal. Executes all `sync_file` entries (individual file copies) and
+then all `sync_dir` entries (directory tree walks) for one project. Every
+call runs all of the project's entries unconditionally. It is invoked from
+three contexts: at source time for each loaded project (startup), from
+`usb_sync`, and from `usb_eject` before unmount.
 
-| Trigger | Runs phases |
-|---------|------------|
-| `startup` | `auto`, `always` |
-| `sync` | `manual`, `always` |
-| `eject` | `auto`, `always` |
+For each `sync_file` entry: parse `source:dest:condition`. For the `newer`
+condition, copy only when the source is newer than the dest (`-nt`, which
+also copies when the dest is missing); otherwise skip. Copies and errors
+are logged to `USB_SYNC_LOG`.
 
-For each matching entry: parse `src:dest:condition:phase`, apply
-condition check (`newer`  `-nt` test), copy if needed, log to
-`USB_SYNC_LOG`. Reads per-project array via `declare -n` nameref.
+For each `sync_dir` entry: parse `source_dir:dest_dir:condition`. For
+`newer`, walk the source tree via `find -type f`, copy files newer than
+their dest counterpart, and create subdirectories within `dest_dir` as
+needed (top-level `dest_dir` must exist). Dest paths are validated to stay
+within the declared `dest_dir`; symlinks are skipped with a count and
+warning. A per-entry summary (copied count, error count) is logged.
 
-### `_usb_run_sync_dirs <project_name> <trigger_label>`
-
-Internal. Execute `sync_dir` entries for a project, filtered by trigger.
-Same trigger-to-phase mapping as `_usb_run_sync_files`. For `newer`
-condition: walks source tree via `find -type f`, copies files newer than
-their dest counterpart, creates subdirectories within `dest_dir` as
-needed. Top-level `dest_dir` must exist. Validates dest paths stay
-within declared `dest_dir`. Symlinks skipped with count and warning.
-Logs summary (copied count, error count) per entry.
+Per-project arrays are read via a `declare -n` nameref.
 
 ---
 
@@ -496,7 +497,7 @@ printf %q quotes each entry safely, handling paths with spaces or special
 characters. No external dependencies.
 
 Array Read: declare -n Nameref in Functions
-Inside _usb_run_sync_files and _usb_run_sync_dirs, the per-project
+Inside _usb_run_sync, the per-project
 array is read via a declare -n nameref rather than eval-by-index:
 
 ```bash
