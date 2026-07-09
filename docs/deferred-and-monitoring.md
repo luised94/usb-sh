@@ -84,6 +84,20 @@ or inline below.
 - **Sync direction** - No local-to-USB sync friction reported. [closed]
 - **Startup time** - No perceived lag. [closed]
 - **Push/pull boilerplate** - Resolved. See Resolution Log. [closed]
+- **differs cmp cost** - The "differs" condition runs a full `cmp` on every
+  sync; usb_check warns when a differs source exceeds USB_DIFFERS_SIZE_WARN
+  (10 MiB default). If large differs entries become common, consider a
+  content-hash-cache condition to avoid re-reading unchanged files. [open]
+- **set -u hardening** - usb.sh is intentionally not `set -u`-safe (the
+  initialized guard and `-h` argument checks read unbound vars). Harnesses
+  source it under `set +u`. A dedicated hardening pass is deferred. [open]
+- **Per-terminal startup sync cost** - Each new shell re-sources usb.sh and can
+  trigger sync at startup. Watch aggregate cost as more projects/differs entries
+  are added. [open]
+- **Keys module extraction** - Commit 12 gave the keys section a documented
+  dependency contract (USB_MOUNT_POINT via USB_KEYS_FILE + usb_verify_connected).
+  Extracting it into its own sourced module is a candidate once a second
+  consumer appears. [open]
 
 ---
 

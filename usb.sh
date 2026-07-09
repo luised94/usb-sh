@@ -78,6 +78,10 @@ fi
 
 USB_CACHE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/drive_letter"
 USB_MANIFEST_FILENAME=".usb-manifest"
+# Machine-scope tunable: a "differs" entry whose source exceeds this many bytes
+# draws a usb_check advisory, since differs runs a full cmp on every sync.
+# Default 10 MiB; override by setting USB_DIFFERS_SIZE_WARN before sourcing.
+USB_DIFFERS_SIZE_WARN="${USB_DIFFERS_SIZE_WARN:-10485760}"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
@@ -1305,6 +1309,12 @@ _usb_run_sync() {
 
     usb_sync_project_name_upper="${usb_sync_project_name^^}"
 
+    # Copy policy (all cp sites below): cp WITHOUT -p, so dest takes the current
+    # mtime rather than inheriting the source's. Under "newer" this keeps the
+    # relay one-directional -- after a copy dest is at least as new as src, so
+    # the next sync does not re-copy the same file. This "newer-relay" property
+    # is a documented assumption, not an enforced guard (see docs/design.md).
+
     # --- Sync files ---
 
     usb_sync_files_variable_name="USB_${usb_sync_project_name_upper}_SYNC_FILES"
@@ -1808,6 +1818,7 @@ EOF
     local usb_check_entry_condition
     local usb_check_entry_extra
     local usb_check_entry_dest_dir
+    local usb_check_entry_size
     local usb_check_local_branch
     local usb_check_bare_branch
     local usb_check_errors=0
@@ -1924,6 +1935,12 @@ EOF
             else
                 _usb_msg "check:   source exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
+            fi
+            if [[ "$usb_check_entry_condition" == "differs" && -f "$usb_check_entry_source" ]]; then
+                usb_check_entry_size=$(stat -c '%s' "$usb_check_entry_source" 2>/dev/null || echo 0)
+                if [[ "$usb_check_entry_size" -gt "$USB_DIFFERS_SIZE_WARN" ]]; then
+                    _usb_msg "check:   WARN differs source is large (${usb_check_entry_size} B > ${USB_DIFFERS_SIZE_WARN} B); a full cmp runs every sync"
+                fi
             fi
             usb_check_entry_dest_dir=$(dirname "$usb_check_entry_dest")
             if [[ -d "$usb_check_entry_dest_dir" ]]; then
