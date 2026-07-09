@@ -9,6 +9,7 @@ operations across WSL and Linux.
 
 All functions support `-h` for usage help.
 
+<!-- BEGIN: generated function table -->
 | Function | Purpose |
 | --- | --- |
 | `usb_verify_connected` | check USB is still physically connected |
@@ -29,6 +30,7 @@ All functions support `-h` for usage help.
 | `usb_unload_keys` | remove API keys from environment |
 | `usb_keys_status` | show API key management state |
 | `usb_shutdown` | unload keys and eject USB |
+<!-- END: generated function table -->
 
 ## Repository Structure
 usb.sh                              Main module

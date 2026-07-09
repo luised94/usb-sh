@@ -452,7 +452,7 @@ with those commits, not in advance.
 | `MC_WINDOWS_USER` names the Windows user; `$USER` is the fallback | detection/env setup, with a warning when the fallback is taken | documented + warned |
 | Loaded API keys are visible to child-process environments | keys load path | documented-only; UNGUARDED: accepted because keys are meant to reach child tools (git, CLIs) |
 | Editor invoked on decrypted keys must not leak plaintext to persistent tmp | editor-safety audit around `usb_edit_keys` | checked |
-| Every public `usb_*` function has a `-h` heredoc whose first line is `<funcname> - ...` | help-heredoc convention | documented-only until commit 11 (docs-sync) upgrades it to checked |
+| Every public `usb_*` function has a `-h` heredoc whose first line is `<funcname> - ...` | `dev/docs-sync.sh --check` (run by the pre-commit hook) errors on any missing heredoc, wrong first-line format, or name mismatch | checked |
 | Loaded-keys bookkeeping survives `usb_refresh` (force re-source) | conditional top-level init of `USB_KEYS_LOADED` / `_USB_LOADED_KEY_NAMES` | enforced |
 | Secret values preserve a trailing `=` (base64 padding) on load | first-`=` expansion split at the three keys parse sites (init/edit/load) | enforced |
 | Every eject exit leaves only machine-scope globals; drive-scope state is swept in exactly one place | `_usb_clear_state`, called from all three `usb_eject` exit paths | enforced |
