@@ -72,6 +72,46 @@ USB_MANIFEST_FILENAME=".usb-manifest"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
+
+# _USB_PS_AVAILABLE (machine-scope): is Windows PowerShell interop present?
+# Memoized once per source and gated on by _usb_ps and its WSL callers.
+# Machine-scope: NOT swept by _usb_clear_state -- interop availability is a
+# property of the host, not the mounted drive.
+_USB_PS_AVAILABLE=false
+command -v powershell.exe >/dev/null 2>&1 && _USB_PS_AVAILABLE=true
+
+# _usb_ps -- run a PowerShell script with honest exit codes.
+# stdout: command output, CRLF-stripped. stderr: diagnostics on failure.
+# rc: 0 success; 1 PS-side failure; 124 interop hang (timeout);
+#     127 powershell.exe unavailable.
+# Callers running native commands (git) must append '; exit $LASTEXITCODE'
+# to their script argument.
+_usb_ps() {
+    local _usb_ps_script="$1" _usb_ps_out _usb_ps_rc
+    if [[ "$_USB_PS_AVAILABLE" != true ]]; then
+        echo "usb[ps]: powershell.exe not available" >&2
+        return 127
+    fi
+    # cd is subshell-scoped (inside $()): caller cwd untouched, no
+    # cd-back needed. /mnt/c avoids the UNC-path interop warning.
+    _usb_ps_out=$(cd /mnt/c 2>/dev/null || cd /; timeout 10 \
+        powershell.exe -NoProfile -NonInteractive -Command \
+        "\$ErrorActionPreference='Stop'; try { $_usb_ps_script } catch { [Console]::Error.WriteLine(\$_); exit 1 }" \
+        2>&1)
+    _usb_ps_rc=$?
+    _usb_ps_out=${_usb_ps_out//$'\r'/}
+    if [[ $_usb_ps_rc -eq 124 ]]; then
+        echo "usb[ps]: Windows interop not responding (timeout)" >&2
+        return 124
+    fi
+    if [[ $_usb_ps_rc -ne 0 ]]; then
+        echo "usb[ps]: failed (rc=$_usb_ps_rc): $_usb_ps_out" >&2
+        return "$_usb_ps_rc"
+    fi
+    printf '%s\n' "$_usb_ps_out"
+    return 0
+}
+
 # USB_KEYS_LOADED: true/false, whether keys are currently in environment
 # _USB_LOADED_KEY_NAMES: indexed array of variable names exported by usb_load_keys
 #   Used by usb_unload_keys to know what to unset without hardcoding key names

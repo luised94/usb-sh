@@ -459,6 +459,7 @@ with those commits, not in advance.
 | Bare-repo divergence is rejected without data loss; reconciliation is explicit | plain (non-force) `git push` non-fast-forward refusal in `usb_push`; `usb_pull` uses `--rebase` | enforced (by git) |
 | Conf and manifest values preserve a trailing `=`; keys match a fixed whitelist | first-`=` expansion split + key regex (`^[a-z][a-z0-9_]*$` conf, `^[A-Z][A-Z0-9_]*$` manifest) at all six non-secret parse sites | enforced |
 | Sync entries are `src:dest:condition` only; a 4th (phase) field is invalid | phase model excised from parser/template/docs; `usb_check` warns on any extra field | enforced (check) |
+| PowerShell interop reports honest exit codes and cannot hang the shell indefinitely | `_usb_ps` wrapper: `$ErrorActionPreference='Stop'` + try/catch (PS-side errors -> rc 1), native callers append `; exit $LASTEXITCODE`, `timeout 10` maps interop hang -> rc 124 | enforced |
 
 ---
 
