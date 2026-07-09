@@ -135,7 +135,7 @@ fi
 if [[ "$USB_ENV" == "wsl" ]]; then
 
     if [[ -f "$USB_CACHE_FILE" ]]; then
-        echo "usb: cache hit  $USB_CACHE_FILE"
+        _usb_msg "cache hit  $USB_CACHE_FILE"
         USB_CACHED_DRIVE_LETTER=$(cat "$USB_CACHE_FILE")
         USB_POTENTIAL_MOUNT_POINT="/mnt/${USB_CACHED_DRIVE_LETTER,,}"
 
@@ -181,12 +181,12 @@ if [[ "$USB_ENV" == "wsl" ]]; then
                 echo "$USB_DETECTED_DRIVE_LETTER" > "$USB_CACHE_FILE"
 
                 if [[ ! -d "$USB_MOUNT_POINT" ]]; then
-                    echo "usb: mkdir ${USB_MOUNT_POINT}: requires sudo..."
+                    _usb_msg "mkdir ${USB_MOUNT_POINT}: requires sudo..."
                     sudo mkdir -p "$USB_MOUNT_POINT"
                 fi
 
                 if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
-                    echo "usb: mounting ${USB_DETECTED_DRIVE_LETTER}: ..."
+                    _usb_msg "mounting ${USB_DETECTED_DRIVE_LETTER}: ..."
                     if sudo mount -t drvfs "${USB_DETECTED_DRIVE_LETTER}:" "$USB_MOUNT_POINT" -o metadata; then
                         export USB_CONNECTED=true
                     else
@@ -207,7 +207,7 @@ else
         if [[ -f "$usb_candidate_path/$USB_MANIFEST_FILENAME" ]]; then
             export USB_MOUNT_POINT="$usb_candidate_path"
             export USB_CONNECTED=true
-            echo "usb: USB connected at $USB_MOUNT_POINT"
+            _usb_msg "USB connected at $USB_MOUNT_POINT"
             break
         fi
     done
@@ -406,7 +406,7 @@ if [[ "$USB_CONNECTED" == true ]]; then
     unset usb_resolved_sync_files_entry
     unset usb_resolved_sync_dirs_entry
 
-    echo "usb: loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
+    _usb_msg "loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
 
 fi
 
@@ -582,12 +582,12 @@ EOF
                 usb_commit_all_project_names+=("$usb_commit_all_discovered_name")
             done
             if [[ ${#usb_commit_all_project_names[@]} -gt 0 ]]; then
-                echo "usb: discovered ${#usb_commit_all_project_names[@]} project(s) from config files (none loaded in memory)"
+                _usb_msg "discovered ${#usb_commit_all_project_names[@]} project(s) from config files (none loaded in memory)"
             fi
         fi
 
         if [[ ${#usb_commit_all_project_names[@]} -eq 0 ]]; then
-            echo "usb: no projects loaded and no config files found"
+            _usb_msg "no projects loaded and no config files found"
             return 0
         fi
 
@@ -595,14 +595,14 @@ EOF
         local usb_commit_success_count=0
         local usb_commit_fail_count=0
         for usb_commit_all_project_name in "${usb_commit_all_project_names[@]}"; do
-            echo "usb: --- commit $usb_commit_all_project_name ---"
+            _usb_msg "--- commit $usb_commit_all_project_name ---"
             if usb_commit "$usb_commit_all_project_name"; then
                 usb_commit_success_count=$((usb_commit_success_count + 1))
             else
                 usb_commit_fail_count=$((usb_commit_fail_count + 1))
             fi
         done
-        echo "usb: commit all complete: $usb_commit_success_count succeeded, $usb_commit_fail_count failed"
+        _usb_msg "commit all complete: $usb_commit_success_count succeeded, $usb_commit_fail_count failed"
         if [[ "$usb_commit_fail_count" -gt 0 ]]; then
             _usb_err "commit all finished with $usb_commit_fail_count failure(s)"
             return 1
@@ -614,7 +614,7 @@ EOF
 
     if [[ -z "$usb_commit_project_name" ]]; then
         _usb_err "argument required: usb_commit <project|all>"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -672,7 +672,7 @@ EOF
             return 1
         fi
 
-        echo "usb: [$usb_commit_project_name] resolved local dir from config (project not loaded in memory)"
+        _usb_msg "[$usb_commit_project_name] resolved local dir from config (project not loaded in memory)"
     fi
 
     # --- Phase 2: Stage and commit ---
@@ -683,7 +683,7 @@ EOF
     fi
 
     if [[ -z "$(git -C "$usb_commit_local_dir" status --porcelain 2>/dev/null)" ]]; then
-        echo "usb: [$usb_commit_project_name] nothing to commit"
+        _usb_msg "[$usb_commit_project_name] nothing to commit"
         return 0
     fi
 
@@ -694,7 +694,7 @@ EOF
     local usb_commit_expected_message="$usb_commit_project_name: sync $usb_commit_today"
 
     git -C "$usb_commit_local_dir" commit -m "$usb_commit_expected_message"
-    echo "usb: [$usb_commit_project_name] committed: $usb_commit_expected_message"
+    _usb_msg "[$usb_commit_project_name] committed: $usb_commit_expected_message"
 }
 
 
@@ -730,21 +730,21 @@ EOF
             return 1
         fi
         if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
-            echo "usb: no projects loaded"
+            _usb_msg "no projects loaded"
             return 0
         fi
         local usb_push_all_project_name
         local usb_push_success_count=0
         local usb_push_fail_count=0
         for usb_push_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-            echo "usb: --- push $usb_push_all_project_name ---"
+            _usb_msg "--- push $usb_push_all_project_name ---"
             if usb_push "$usb_push_all_project_name"; then
                 usb_push_success_count=$((usb_push_success_count + 1))
             else
                 usb_push_fail_count=$((usb_push_fail_count + 1))
             fi
         done
-        echo "usb: push all complete: $usb_push_success_count succeeded, $usb_push_fail_count failed"
+        _usb_msg "push all complete: $usb_push_success_count succeeded, $usb_push_fail_count failed"
         if [[ "$usb_push_fail_count" -gt 0 ]]; then
             _usb_err "push all finished with $usb_push_fail_count failure(s)"
             return 1
@@ -763,7 +763,7 @@ EOF
 
     if [[ -z "$usb_push_project_name" ]]; then
         _usb_err "argument required: usb_push <project|all>"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -781,7 +781,7 @@ EOF
     done
     if [[ "$usb_push_project_is_loaded" == false ]]; then
         _usb_err "project '$usb_push_project_name' is not loaded"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -816,7 +816,7 @@ EOF
 
     if [[ -n "$(git -C "$usb_push_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
         _usb_err "uncommitted changes in $usb_push_local_dir_ref"
-        echo "usb: run usb_commit $usb_push_project_name first"
+        _usb_msg "run usb_commit $usb_push_project_name first"
         unset -n usb_push_local_dir_ref
         unset -n usb_push_repo_path_ref
         return 1
@@ -830,7 +830,7 @@ EOF
     usb_push_rc=$?
     if [[ "$usb_push_rc" -ne 0 ]]; then
         _usb_err "push failed for $usb_push_project_name"
-        echo "usb: if the bare repo is ahead, run usb_pull $usb_push_project_name first, then push again"
+        _usb_msg "if the bare repo is ahead, run usb_pull $usb_push_project_name first, then push again"
         unset -n usb_push_local_dir_ref
         unset -n usb_push_repo_path_ref
         return "$usb_push_rc"
@@ -868,21 +868,21 @@ EOF
             return 1
         fi
         if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
-            echo "usb: no projects loaded"
+            _usb_msg "no projects loaded"
             return 0
         fi
         local usb_pull_all_project_name
         local usb_pull_success_count=0
         local usb_pull_fail_count=0
         for usb_pull_all_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-            echo "usb: --- pull $usb_pull_all_project_name ---"
+            _usb_msg "--- pull $usb_pull_all_project_name ---"
             if usb_pull "$usb_pull_all_project_name"; then
                 usb_pull_success_count=$((usb_pull_success_count + 1))
             else
                 usb_pull_fail_count=$((usb_pull_fail_count + 1))
             fi
         done
-        echo "usb: pull all complete: $usb_pull_success_count succeeded, $usb_pull_fail_count failed"
+        _usb_msg "pull all complete: $usb_pull_success_count succeeded, $usb_pull_fail_count failed"
         if [[ "$usb_pull_fail_count" -gt 0 ]]; then
             _usb_err "pull all finished with $usb_pull_fail_count failure(s)"
             return 1
@@ -901,7 +901,7 @@ EOF
 
     if [[ -z "$usb_pull_project_name" ]]; then
         _usb_err "argument required: usb_pull <project|all>"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -919,7 +919,7 @@ EOF
     done
     if [[ "$usb_pull_project_is_loaded" == false ]]; then
         _usb_err "project '$usb_pull_project_name' is not loaded"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -946,7 +946,7 @@ EOF
 
     if [[ -n "$(git -C "$usb_pull_local_dir_ref" status --porcelain 2>/dev/null)" ]]; then
         _usb_err "uncommitted changes in $usb_pull_local_dir_ref"
-        echo "usb: commit or stash changes before pulling"
+        _usb_msg "commit or stash changes before pulling"
         unset -n usb_pull_local_dir_ref
         unset -n usb_pull_repo_path_ref
         return 1
@@ -1025,7 +1025,7 @@ EOF
 
     if [[ "$usb_init_project_is_loaded" == false ]]; then
         _usb_err "project '$usb_init_project_name' is not loaded"
-        echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+        _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
         return 1
     fi
 
@@ -1062,7 +1062,7 @@ EOF
             unset -n usb_init_repo_path_ref
             return 1
         else
-            echo "usb: bare repo directory exists but looks incomplete, retrying push..."
+            _usb_msg "bare repo directory exists but looks incomplete, retrying push..."
             usb_init_needs_init=false
         fi
     fi
@@ -1075,21 +1075,21 @@ EOF
             # check for Windows git
             if ! _usb_check_windows_git; then
                 _usb_err "git not found on Windows"
-                echo "usb: install git for Windows:"
-                echo "usb:   winget install Git.Git"
-                echo "usb: then restart your terminal and retry"
+                _usb_msg "install git for Windows:"
+                _usb_msg "  winget install Git.Git"
+                _usb_msg "then restart your terminal and retry"
                 unset -n usb_init_local_dir_ref
                 unset -n usb_init_repo_path_ref
                 return 1
             fi
 
-            echo "usb: creating bare repo via PowerShell..."
+            _usb_msg "creating bare repo via PowerShell..."
             if ! _usb_ps "git init --bare '$usb_init_win_path'; exit \$LASTEXITCODE"; then
                 _usb_err "git init --bare failed via PowerShell"
-                echo "usb: run manually in PowerShell:"
-                echo "usb:   git init --bare '$usb_init_win_path'"
-                echo "usb: then re-run this command to push:"
-                echo "usb:   usb_init_bare $usb_init_project_name"
+                _usb_msg "run manually in PowerShell:"
+                _usb_msg "  git init --bare '$usb_init_win_path'"
+                _usb_msg "then re-run this command to push:"
+                _usb_msg "  usb_init_bare $usb_init_project_name"
                 unset -n usb_init_local_dir_ref
                 unset -n usb_init_repo_path_ref
                 return 1
@@ -1098,19 +1098,19 @@ EOF
 
         _usb_ensure_safe_directory "$usb_init_bare_repo_path"
 
-        echo "usb: pushing $usb_init_branch to bare repo..."
+        _usb_msg "pushing $usb_init_branch to bare repo..."
         if ! git -C "$usb_init_local_dir_ref" push "$usb_init_bare_repo_path" "$usb_init_branch"; then
             _usb_err "initial push failed"
-            echo "usb: bare repo was created at $usb_init_win_path"
-            echo "usb: debug: try pushing manually:"
-            echo "usb:   git -C $usb_init_local_dir_ref push $usb_init_bare_repo_path $usb_init_branch"
+            _usb_msg "bare repo was created at $usb_init_win_path"
+            _usb_msg "debug: try pushing manually:"
+            _usb_msg "  git -C $usb_init_local_dir_ref push $usb_init_bare_repo_path $usb_init_branch"
             unset -n usb_init_local_dir_ref
             unset -n usb_init_repo_path_ref
             return 1
         fi
     else
         if [[ "$usb_init_needs_init" == true ]]; then
-            echo "usb: cloning bare repo to USB..."
+            _usb_msg "cloning bare repo to USB..."
             if ! git clone --bare "$usb_init_local_dir_ref" "$usb_init_bare_repo_path"; then
                 _usb_err "git clone --bare failed"
                 unset -n usb_init_local_dir_ref
@@ -1122,7 +1122,7 @@ EOF
         _usb_ensure_safe_directory "$usb_init_bare_repo_path"
     fi
 
-    echo "usb: bare repo created at $usb_init_bare_repo_path"
+    _usb_msg "bare repo created at $usb_init_bare_repo_path"
     unset -n usb_init_local_dir_ref
     unset -n usb_init_repo_path_ref
 }
@@ -1169,7 +1169,7 @@ EOF
 
     for usb_clone_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
         if [[ ! -f "$usb_clone_conf_file_path" ]]; then
-            echo "usb: no conf files found"
+            _usb_msg "no conf files found"
             break
         fi
 
@@ -1210,7 +1210,7 @@ EOF
         fi
 
         if [[ -d "$usb_clone_local_dir" ]]; then
-            echo "usb: [$usb_clone_project_name] local_dir exists, skipping: $usb_clone_local_dir"
+            _usb_msg "[$usb_clone_project_name] local_dir exists, skipping: $usb_clone_local_dir"
             usb_clone_skipped_count=$((usb_clone_skipped_count + 1))
             continue
         fi
@@ -1225,7 +1225,7 @@ EOF
         # ensure parent directory exists
         usb_clone_parent_dir=$(dirname "$usb_clone_local_dir")
         if [[ ! -d "$usb_clone_parent_dir" ]]; then
-            echo "usb: [$usb_clone_project_name] creating parent directory: $usb_clone_parent_dir"
+            _usb_msg "[$usb_clone_project_name] creating parent directory: $usb_clone_parent_dir"
             if ! mkdir -p "$usb_clone_parent_dir"; then
                 _usb_err "[$usb_clone_project_name] failed to create parent directory"
                 usb_clone_error_count=$((usb_clone_error_count + 1))
@@ -1236,7 +1236,7 @@ EOF
         # detect actual branch in bare repo before cloning
         usb_clone_branch=$(git -C "$usb_clone_bare_repo_path" branch --list 2>/dev/null | sed 's/^[* ]*//' | head -n1)
 
-        echo "usb: [$usb_clone_project_name] cloning $usb_clone_bare_repo_path -> $usb_clone_local_dir"
+        _usb_msg "[$usb_clone_project_name] cloning $usb_clone_bare_repo_path -> $usb_clone_local_dir"
 
         if [[ -n "$usb_clone_branch" ]]; then
             # clone with explicit branch to avoid HEAD ref mismatch
@@ -1263,9 +1263,9 @@ EOF
         fi
     done
 
-    echo "usb: clone_all complete: $usb_clone_cloned_count cloned, $usb_clone_skipped_count skipped, $usb_clone_error_count errors"
+    _usb_msg "clone_all complete: $usb_clone_cloned_count cloned, $usb_clone_skipped_count skipped, $usb_clone_error_count errors"
     if [[ "$usb_clone_cloned_count" -gt 0 ]]; then
-        echo "usb: run usb_refresh to reload projects"
+        _usb_msg "run usb_refresh to reload projects"
     fi
 }
 
@@ -1316,7 +1316,7 @@ _usb_run_sync() {
             # Format: source:dest:condition
             IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition <<< "$usb_sync_entry"
 
-            echo "usb: [$usb_sync_project_name] evaluating entry: $usb_sync_source_path -> $usb_sync_dest_path (condition: $usb_sync_condition)"
+            _usb_msg "[$usb_sync_project_name] evaluating entry: $usb_sync_source_path -> $usb_sync_dest_path (condition: $usb_sync_condition)"
 
             usb_sync_copy_result="SKIP"
 
@@ -1330,7 +1330,7 @@ _usb_run_sync() {
                         usb_sync_copy_result="ERROR"
                     else
 
-                        echo "usb: [$usb_sync_project_name] copying (newer): $usb_sync_source_path -> $usb_sync_dest_path"
+                        _usb_msg "[$usb_sync_project_name] copying (newer): $usb_sync_source_path -> $usb_sync_dest_path"
                         if cp "$usb_sync_source_path" "$usb_sync_dest_path"; then
                             usb_sync_copy_result="OK"
                         else
@@ -1340,7 +1340,7 @@ _usb_run_sync() {
                     fi
                 else
 
-                    echo "usb: [$usb_sync_project_name] skipping (source not newer): $usb_sync_source_path"
+                    _usb_msg "[$usb_sync_project_name] skipping (source not newer): $usb_sync_source_path"
 
                 fi
             else
@@ -1351,7 +1351,7 @@ _usb_run_sync() {
 
             usb_sync_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
             if [[ "$usb_sync_copy_result" == "OK" ]]; then
-                echo "usb: [$usb_sync_project_name] synced $usb_sync_source_path -> $usb_sync_dest_path"
+                _usb_msg "[$usb_sync_project_name] synced $usb_sync_source_path -> $usb_sync_dest_path"
             elif [[ "$usb_sync_copy_result" == "ERROR" ]]; then
                 _usb_err "[$usb_sync_project_name] copy failed $usb_sync_source_path -> $usb_sync_dest_path"
             fi
@@ -1383,7 +1383,7 @@ _usb_run_sync() {
                 continue
             fi
 
-            echo "usb: [$usb_sync_project_name] processing sync_dir: $usb_sync_source_path -> $usb_sync_dest_path"
+            _usb_msg "[$usb_sync_project_name] processing sync_dir: $usb_sync_source_path -> $usb_sync_dest_path"
 
             if [[ ! -d "$usb_sync_source_path" ]]; then
                 _usb_err "[$usb_sync_project_name] sync_dir source directory does not exist: $usb_sync_source_path"
@@ -1404,7 +1404,7 @@ _usb_run_sync() {
                 _usb_warn "[$usb_sync_project_name] sync_dir skipped $usb_sync_symlink_count symlink(s) in $usb_sync_source_path"
             fi
 
-            echo "usb: [$usb_sync_project_name] scanning $usb_sync_source_path for files to sync..."
+            _usb_msg "[$usb_sync_project_name] scanning $usb_sync_source_path for files to sync..."
 
             while IFS= read -r usb_sync_source_file_path; do
                 usb_sync_relative_path="${usb_sync_source_file_path#"$usb_sync_source_path"/}"
@@ -1418,7 +1418,7 @@ _usb_run_sync() {
 
                 if [[ "$usb_sync_source_file_path" -nt "$usb_sync_dest_file_path" ]]; then
 
-                    echo "usb: [$usb_sync_project_name] copying (newer): $usb_sync_relative_path"
+                    _usb_msg "[$usb_sync_project_name] copying (newer): $usb_sync_relative_path"
 
                     usb_sync_dest_file_dir=$(dirname "$usb_sync_dest_file_path")
                     if [[ ! -d "$usb_sync_dest_file_dir" ]]; then
@@ -1435,7 +1435,7 @@ _usb_run_sync() {
 
             # Summary / conclusion
             if [[ "$usb_sync_copy_count" -gt 0 || "$usb_sync_error_count" -gt 0 ]]; then
-                echo "usb: [$usb_sync_project_name] sync_dir $usb_sync_source_path -> $usb_sync_dest_path [$usb_sync_copy_count copied, $usb_sync_error_count errors]"
+                _usb_msg "[$usb_sync_project_name] sync_dir $usb_sync_source_path -> $usb_sync_dest_path [$usb_sync_copy_count copied, $usb_sync_error_count errors]"
                 usb_sync_log_timestamp=$(date +"%Y-%m-%dT%H:%M:%S")
                 if [[ -n "$USB_SYNC_LOG" ]]; then
                     echo "$usb_sync_log_timestamp [$usb_sync_project_name] SYNC_DIR $usb_sync_source_path -> $usb_sync_dest_path [$usb_sync_copy_count copied, $usb_sync_error_count errors]" >> "$USB_SYNC_LOG"
@@ -1445,7 +1445,7 @@ _usb_run_sync() {
                 fi
             else
 
-                echo "usb: [$usb_sync_project_name] sync_dir $usb_sync_source_path -> $usb_sync_dest_path: no files needed syncing"
+                _usb_msg "[$usb_sync_project_name] sync_dir $usb_sync_source_path -> $usb_sync_dest_path: no files needed syncing"
 
             fi
         done
@@ -1493,7 +1493,7 @@ EOF
 
         if [[ "$usb_sync_project_is_loaded" == false ]]; then
             _usb_err "project '$usb_sync_target_project' is not loaded"
-            echo "usb: loaded projects: ${USB_LOADED_PROJECTS[*]}"
+            _usb_msg "loaded projects: ${USB_LOADED_PROJECTS[*]}"
             return 1
         fi
 
@@ -1502,12 +1502,12 @@ EOF
     else
 
         if [[ ${#USB_LOADED_PROJECTS[@]} -eq 0 ]]; then
-            echo "usb: no projects loaded"
+            _usb_msg "no projects loaded"
             return 0
         fi
 
         for usb_sync_project_name in "${USB_LOADED_PROJECTS[@]}"; do
-            echo "usb: --- sync $usb_sync_project_name ---"
+            _usb_msg "--- sync $usb_sync_project_name ---"
             _usb_run_sync "$usb_sync_project_name"
         done
 
@@ -1567,13 +1567,13 @@ EOF
     local usb_drive_still_present
 
     if ! usb_verify_connected; then
-        echo "usb: USB is not connected, cleaning up state"
+        _usb_msg "USB is not connected, cleaning up state"
         _usb_clear_state
         return 0
     fi
 
     if [[ ! -f "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME" ]]; then
-        echo "usb: USB already removed, cleaning up state"
+        _usb_msg "USB already removed, cleaning up state"
         _usb_clear_state
         return 0
     fi
@@ -1592,7 +1592,7 @@ EOF
     sync
 
     if mountpoint -q "$USB_MOUNT_POINT" 2>/dev/null; then
-        echo "usb: unmounting $USB_MOUNT_POINT..."
+        _usb_msg "unmounting $USB_MOUNT_POINT..."
         if ! sudo umount "$USB_MOUNT_POINT"; then
             _usb_err "unmount failed, files may still be in use"
             lsof +D "$USB_MOUNT_POINT" 2>/dev/null || echo "usb: could not list open files"
@@ -1607,7 +1607,7 @@ EOF
         fi
 
         if [[ -n "$USB_DRIVE_LETTER" ]]; then
-            echo "usb: ejecting ${USB_DRIVE_LETTER}: from Windows..."
+            _usb_msg "ejecting ${USB_DRIVE_LETTER}: from Windows..."
             _usb_ps "
                 (New-Object -ComObject Shell.Application).NameSpace(17).ParseName('${USB_DRIVE_LETTER}:').InvokeVerb('Eject')
             "
@@ -1615,12 +1615,12 @@ EOF
             if [[ "$usb_drive_still_present" == "True" ]]; then
                 _usb_warn "Windows did not eject the drive, it may still be busy"
             else
-                echo "usb: drive ejected safely"
+                _usb_msg "drive ejected safely"
             fi
         fi
 
     else
-        echo "usb: unmounted, safe to unplug"
+        _usb_msg "unmounted, safe to unplug"
     fi
 
     _usb_clear_state
@@ -1640,17 +1640,17 @@ EOF
 
     if [[ ! -f "$USB_SCRIPT_PATH" ]]; then
         _usb_err "script not found at $USB_SCRIPT_PATH"
-        echo "usb: source usb.sh manually from its location"
+        _usb_msg "source usb.sh manually from its location"
         return 1
     fi
-    echo "usb: refreshing from $USB_SCRIPT_PATH..."
+    _usb_msg "refreshing from $USB_SCRIPT_PATH..."
     # USB_SCRIPT_PATH is resolved at runtime; can't be followed statically
     # shellcheck source=/dev/null
     source "$USB_SCRIPT_PATH" force
     if [[ "$USB_CONNECTED" == true ]]; then
-        echo "usb: ready ($USB_ENV, mount: $USB_MOUNT_POINT)"
+        _usb_msg "ready ($USB_ENV, mount: $USB_MOUNT_POINT)"
     else
-        echo "usb: ready ($USB_ENV, USB not connected)"
+        _usb_msg "ready ($USB_ENV, USB not connected)"
     fi
 }
 
@@ -1786,7 +1786,7 @@ EOF
 
     for usb_check_conf_file_path in "$USB_MOUNT_POINT/.usb-projects/"*.conf; do
         if [[ ! -f "$usb_check_conf_file_path" ]]; then
-            echo "usb: check: no conf files found"
+            _usb_msg "check: no conf files found"
             break
         fi
 
@@ -1796,8 +1796,8 @@ EOF
         usb_check_sync_dirs=()
 
         usb_check_project_name=$(basename "$usb_check_conf_file_path" .conf)
-        echo "usb: check: --- $usb_check_project_name ---"
-        echo "usb: check: conf=$usb_check_conf_file_path"
+        _usb_msg "check: --- $usb_check_project_name ---"
+        _usb_msg "check: conf=$usb_check_conf_file_path"
 
         while IFS= read -r usb_check_conf_line; do
             usb_check_conf_line="${usb_check_conf_line%$'\r'}"
@@ -1829,33 +1829,33 @@ EOF
                     usb_check_sync_dirs+=("$usb_check_conf_value")
                     ;;
                 *)
-                    echo "usb: check: WARN unknown key: $usb_check_conf_key"
+                    _usb_msg "check: WARN unknown key: $usb_check_conf_key"
                     ;;
             esac
         done < "$usb_check_conf_file_path"
 
         if [[ -z "$usb_check_local_dir" ]]; then
-            echo "usb: check: ERROR local_dir missing"
+            _usb_msg "check: ERROR local_dir missing"
             usb_check_errors=$((usb_check_errors + 1))
         else
-            echo "usb: check: local_dir=$usb_check_local_dir"
+            _usb_msg "check: local_dir=$usb_check_local_dir"
             if [[ -d "$usb_check_local_dir" ]]; then
-                echo "usb: check:   exists=yes"
+                _usb_msg "check:   exists=yes"
             else
-                echo "usb: check:   exists=no"
+                _usb_msg "check:   exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
         fi
 
         if [[ -z "$usb_check_repo_path" ]]; then
-            echo "usb: check: ERROR repo_path missing"
+            _usb_msg "check: ERROR repo_path missing"
             usb_check_errors=$((usb_check_errors + 1))
         else
-            echo "usb: check: repo_path=$usb_check_repo_path"
+            _usb_msg "check: repo_path=$usb_check_repo_path"
             if [[ -d "$USB_MOUNT_POINT/$usb_check_repo_path" ]]; then
-                echo "usb: check:   exists=yes"
+                _usb_msg "check:   exists=yes"
             else
-                echo "usb: check:   exists=no"
+                _usb_msg "check:   exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
         fi
@@ -1865,15 +1865,15 @@ EOF
             usb_check_bare_branch=$(git -C "$USB_MOUNT_POINT/$usb_check_repo_path" symbolic-ref --short HEAD 2>/dev/null)
             if [[ -n "$usb_check_local_branch" && -n "$usb_check_bare_branch" ]]; then
                 if [[ "$usb_check_local_branch" == "$usb_check_bare_branch" ]]; then
-                    echo "usb: check:   branch=$usb_check_local_branch (matches bare repo)"
+                    _usb_msg "check:   branch=$usb_check_local_branch (matches bare repo)"
                 else
-                    echo "usb: check:   branch MISMATCH: local=$usb_check_local_branch bare=$usb_check_bare_branch"
+                    _usb_msg "check:   branch MISMATCH: local=$usb_check_local_branch bare=$usb_check_bare_branch"
                     usb_check_errors=$((usb_check_errors + 1))
                 fi
             elif [[ -z "$usb_check_local_branch" ]]; then
-                echo "usb: check:   WARN could not detect local branch (detached HEAD?)"
+                _usb_msg "check:   WARN could not detect local branch (detached HEAD?)"
             elif [[ -z "$usb_check_bare_branch" ]]; then
-                echo "usb: check:   WARN could not detect bare repo branch"
+                _usb_msg "check:   WARN could not detect bare repo branch"
             fi
         fi
 
@@ -1881,22 +1881,22 @@ EOF
             usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
-            echo "usb: check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            _usb_msg "check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
             if [[ -n "$usb_check_entry_extra" ]]; then
-                echo "usb: check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
+                _usb_msg "check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
             if [[ -f "$usb_check_entry_source" ]]; then
-                echo "usb: check:   source exists=yes"
+                _usb_msg "check:   source exists=yes"
             else
-                echo "usb: check:   source exists=no"
+                _usb_msg "check:   source exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
             usb_check_entry_dest_dir=$(dirname "$usb_check_entry_dest")
             if [[ -d "$usb_check_entry_dest_dir" ]]; then
-                echo "usb: check:   dest dir exists=yes"
+                _usb_msg "check:   dest dir exists=yes"
             else
-                echo "usb: check:   dest dir exists=no"
+                _usb_msg "check:   dest dir exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
         done
@@ -1905,21 +1905,21 @@ EOF
             usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
-            echo "usb: check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            _usb_msg "check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
             if [[ -n "$usb_check_entry_extra" ]]; then
-                echo "usb: check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
+                _usb_msg "check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
             if [[ -d "$usb_check_entry_source" ]]; then
-                echo "usb: check:   source dir exists=yes"
+                _usb_msg "check:   source dir exists=yes"
             else
-                echo "usb: check:   source dir exists=no"
+                _usb_msg "check:   source dir exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
             if [[ -d "$usb_check_entry_dest" ]]; then
-                echo "usb: check:   dest dir exists=yes"
+                _usb_msg "check:   dest dir exists=yes"
             else
-                echo "usb: check:   dest dir exists=no"
+                _usb_msg "check:   dest dir exists=no"
                 usb_check_errors=$((usb_check_errors + 1))
             fi
 done
@@ -1929,13 +1929,13 @@ done
     local usb_check_configs_dir
     usb_check_configs_dir="$(dirname "$(readlink -f "$USB_SCRIPT_PATH")")/configs"
     if [[ -d "$usb_check_configs_dir" ]]; then
-        echo "usb: check: --- config drift ---"
+        _usb_msg "check: --- config drift ---"
         if [[ -f "$usb_check_configs_dir/.usb-manifest.reference" ]]; then
             if ! cmp -s "$usb_check_configs_dir/.usb-manifest.reference" "$USB_MOUNT_POINT/$USB_MANIFEST_FILENAME"; then
-                echo "usb: check: WARN .usb-manifest has drifted from reference copy"
+                _usb_msg "check: WARN .usb-manifest has drifted from reference copy"
                 usb_check_errors=$((usb_check_errors + 1))
             else
-                echo "usb: check: .usb-manifest matches reference"
+                _usb_msg "check: .usb-manifest matches reference"
             fi
         fi
         local usb_check_reference_file
@@ -1950,23 +1950,23 @@ done
             usb_check_conf_name="${usb_check_reference_basename%.reference}"
             usb_check_usb_conf_path="$USB_MOUNT_POINT/.usb-projects/$usb_check_conf_name"
             if [[ ! -f "$usb_check_usb_conf_path" ]]; then
-                echo "usb: check: WARN $usb_check_conf_name has no USB counterpart"
+                _usb_msg "check: WARN $usb_check_conf_name has no USB counterpart"
                 usb_check_errors=$((usb_check_errors + 1))
                 continue
             fi
             if ! cmp -s "$usb_check_reference_file" "$usb_check_usb_conf_path"; then
-                echo "usb: check: WARN $usb_check_conf_name has drifted from reference copy"
+                _usb_msg "check: WARN $usb_check_conf_name has drifted from reference copy"
                 usb_check_errors=$((usb_check_errors + 1))
             else
-                echo "usb: check: $usb_check_conf_name matches reference"
+                _usb_msg "check: $usb_check_conf_name matches reference"
             fi
         done
     fi
     if [[ "$usb_check_errors" -gt 0 ]]; then
-        echo "usb: check: $usb_check_errors error(s) found"
+        _usb_msg "check: $usb_check_errors error(s) found"
         return 1
     else
-        echo "usb: check: all checks passed"
+        _usb_msg "check: all checks passed"
         return 0
     fi
 }
@@ -2029,7 +2029,7 @@ EOF
     usb_new_project_editor="${EDITOR:-vi}"
     if ! command -v "$usb_new_project_editor" > /dev/null 2>&1; then
         _usb_err "editor not found: $usb_new_project_editor"
-        echo "usb: set EDITOR to a valid editor"
+        _usb_msg "set EDITOR to a valid editor"
         return 1
     fi
 
@@ -2057,7 +2057,7 @@ repo_path=personal_repos/${usb_new_project_name}.git
 # sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto
 SCAFFOLD
 
-    echo "usb: opening editor: $usb_new_project_editor"
+    _usb_msg "opening editor: $usb_new_project_editor"
     "$usb_new_project_editor" "$usb_new_project_tmp_path"
 
     if [[ ! -f "$usb_new_project_tmp_path" ]]; then
@@ -2107,8 +2107,8 @@ SCAFFOLD
         if [[ "$usb_new_project_has_repo_path" == false ]]; then
             _usb_err "  repo_path"
         fi
-        echo "usb: temp file kept at: $usb_new_project_tmp_path"
-        echo "usb: fix and rename manually, or remove and try again"
+        _usb_msg "temp file kept at: $usb_new_project_tmp_path"
+        _usb_msg "fix and rename manually, or remove and try again"
         return 1
     fi
 
@@ -2120,8 +2120,8 @@ SCAFFOLD
     fi
 
     mv "$usb_new_project_tmp_path" "$usb_new_project_conf_path"
-    echo "usb: created $usb_new_project_conf_path"
-    echo "usb: run usb_refresh to load the new project"
+    _usb_msg "created $usb_new_project_conf_path"
+    _usb_msg "run usb_refresh to load the new project"
 }
 
 # =============================================================================
@@ -2203,16 +2203,16 @@ _usb_gpg_check() {
 
     if [[ ! -f "$HOME/.gnupg/gpg-agent.conf" ]]; then
         echo "usb[ERROR]: ~/.gnupg/gpg-agent.conf not found"
-        echo "usb: create it with:"
+        _usb_msg "create it with:"
         echo "usb:   printf '%s\\n' 'pinentry-program /usr/bin/pinentry-curses' 'allow-loopback-pinentry' > ~/.gnupg/gpg-agent.conf"
-        echo "usb:   gpgconf --kill gpg-agent"
+        _usb_msg "  gpgconf --kill gpg-agent"
         return 1
     fi
 
     if ! grep -q "^allow-loopback-pinentry" "$HOME/.gnupg/gpg-agent.conf" 2>/dev/null; then
         _usb_err "GPG loopback pinentry not enabled"
         echo "usb: add 'allow-loopback-pinentry' to ~/.gnupg/gpg-agent.conf"
-        echo "usb: then run: gpgconf --kill gpg-agent"
+        _usb_msg "then run: gpgconf --kill gpg-agent"
         return 1
     fi
 
@@ -2352,7 +2352,7 @@ EOF
 
     if [[ ! -d /dev/shm || ! -w /dev/shm ]]; then
         _usb_err "/dev/shm is not available or not writable"
-        echo "usb: required as tmpfs for plaintext during editing"
+        _usb_msg "required as tmpfs for plaintext during editing"
         return 1
     fi
 
@@ -2370,14 +2370,14 @@ EOF
 
     if [[ -f "$usb_init_keys_gpg_path" ]]; then
         _usb_err ".keys/env.gpg already exists"
-        echo "usb: use usb_edit_keys to modify, or remove manually and re-run"
+        _usb_msg "use usb_edit_keys to modify, or remove manually and re-run"
         return 1
     fi
 
     usb_init_keys_editor="${EDITOR:-vi}"
     if ! command -v "$usb_init_keys_editor" > /dev/null 2>&1; then
         _usb_err "editor not found: $usb_init_keys_editor"
-        echo "usb: set EDITOR to a valid editor"
+        _usb_msg "set EDITOR to a valid editor"
         return 1
     fi
 
@@ -2395,7 +2395,7 @@ SCAFFOLD
     chmod 600 "$usb_init_keys_tmp_path"
 
     _usb_check_editor_safety
-    echo "usb: opening editor: $usb_init_keys_editor"
+    _usb_msg "opening editor: $usb_init_keys_editor"
     "$usb_init_keys_editor" "$usb_init_keys_tmp_path"
 
     if [[ ! -f "$usb_init_keys_tmp_path" ]]; then
@@ -2475,7 +2475,7 @@ SCAFFOLD
 README
     fi
 
-    echo "usb: keys initialized at $usb_init_keys_gpg_path"
+    _usb_msg "keys initialized at $usb_init_keys_gpg_path"
 }
 
 # usb_edit_keys -- decrypt, edit, and re-encrypt the key file
@@ -2501,7 +2501,7 @@ EOF
 
     if [[ ! -d /dev/shm || ! -w /dev/shm ]]; then
         _usb_err "/dev/shm is not available or not writable"
-        echo "usb: required as tmpfs for plaintext during editing"
+        _usb_msg "required as tmpfs for plaintext during editing"
         return 1
     fi
 
@@ -2519,14 +2519,14 @@ EOF
 
     if [[ ! -f "$usb_edit_keys_gpg_path" ]]; then
         _usb_err ".keys/env.gpg not found"
-        echo "usb: run usb_init_keys to create it"
+        _usb_msg "run usb_init_keys to create it"
         return 1
     fi
 
     usb_edit_keys_editor="${EDITOR:-vi}"
     if ! command -v "$usb_edit_keys_editor" > /dev/null 2>&1; then
         _usb_err "editor not found: $usb_edit_keys_editor"
-        echo "usb: set EDITOR to a valid editor"
+        _usb_msg "set EDITOR to a valid editor"
         return 1
     fi
 
@@ -2543,7 +2543,7 @@ EOF
     usb_edit_keys_checksum_before=$(sha256sum "$usb_edit_keys_tmp_path" | cut -d' ' -f1)
 
     _usb_check_editor_safety
-    echo "usb: opening editor: $usb_edit_keys_editor"
+    _usb_msg "opening editor: $usb_edit_keys_editor"
     "$usb_edit_keys_editor" "$usb_edit_keys_tmp_path"
 
     if [[ ! -f "$usb_edit_keys_tmp_path" ]]; then
@@ -2555,7 +2555,7 @@ EOF
     usb_edit_keys_checksum_after=$(sha256sum "$usb_edit_keys_tmp_path" | cut -d' ' -f1)
 
     if [[ "$usb_edit_keys_checksum_before" == "$usb_edit_keys_checksum_after" ]]; then
-        echo "usb: no changes detected, skipping re-encryption"
+        _usb_msg "no changes detected, skipping re-encryption"
         shred -u "$usb_edit_keys_tmp_path" 2>/dev/null || rm -f "$usb_edit_keys_tmp_path"
         return 0
     fi
@@ -2586,14 +2586,14 @@ EOF
 
     if [[ "$usb_edit_keys_has_valid_line" == false ]]; then
         _usb_err "no valid KEY=value lines found after edit"
-        echo "usb: tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
+        _usb_msg "tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
         return 1
     fi
 
     # Re-encrypt to USB
     if ! _usb_gpg_encrypt "$usb_edit_keys_gpg_path" "$usb_edit_keys_tmp_path"; then
         _usb_err "GPG re-encryption failed (passphrase cancelled?)"
-        echo "usb: tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
+        _usb_msg "tmpfs file preserved for recovery: $usb_edit_keys_tmp_path"
         return 1
     fi
 
@@ -2604,7 +2604,7 @@ EOF
         _usb_warn "loaded keys are now stale, run usb_load_keys to reload"
     fi
 
-    echo "usb: keys updated at $usb_edit_keys_gpg_path"
+    _usb_msg "keys updated at $usb_edit_keys_gpg_path"
 }
 
 # usb_load_keys -- decrypt key file and export as environment variables
@@ -2641,7 +2641,7 @@ EOF
 
     if [[ ! -f "$usb_load_keys_gpg_path" ]]; then
         _usb_err ".keys/env.gpg not found"
-        echo "usb: run usb_init_keys to create it"
+        _usb_msg "run usb_init_keys to create it"
         return 1
     fi
 
@@ -2696,7 +2696,7 @@ EOF
     unset usb_load_keys_decrypted
 
     USB_KEYS_LOADED=true
-    echo "usb: loaded $usb_load_keys_count key(s) into environment"
+    _usb_msg "loaded $usb_load_keys_count key(s) into environment"
 }
 
 # usb_unload_keys -- remove loaded API keys from environment
@@ -2716,7 +2716,7 @@ EOF
     local usb_unload_keys_name
 
     if [[ "$USB_KEYS_LOADED" != true ]]; then
-        echo "usb: no keys loaded"
+        _usb_msg "no keys loaded"
         return 0
     fi
 
@@ -2726,7 +2726,7 @@ EOF
 
     _USB_LOADED_KEY_NAMES=()
     USB_KEYS_LOADED=false
-    echo "usb: keys removed from environment"
+    _usb_msg "keys removed from environment"
 }
 
 # usb_keys_status -- report current key management state
