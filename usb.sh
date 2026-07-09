@@ -112,16 +112,6 @@ _usb_ps() {
     return 0
 }
 
-# USB_KEYS_LOADED: true/false, whether keys are currently in environment
-# _USB_LOADED_KEY_NAMES: indexed array of variable names exported by usb_load_keys
-#   Used by usb_unload_keys to know what to unset without hardcoding key names
-# Initialize only if unset: usb_refresh re-sources with "force", bypassing
-# the already-initialized guard. Unconditional resets here would wipe key
-# bookkeeping while the secrets remain exported in the environment, leaving
-# usb_unload_keys unable to remove them (orphaned secrets).
-: "${USB_KEYS_LOADED:=false}"
-declare -p _USB_LOADED_KEY_NAMES >/dev/null 2>&1 || _USB_LOADED_KEY_NAMES=()
-
 if [[ "$1" == "force" ]]; then
     rm -f "$USB_CACHE_FILE"
 fi
@@ -1537,7 +1527,7 @@ _usb_clear_state() {
     done
     # Canonical exported name is USB_DRIVE_LETTER. Detection also leaves three
     # top-level intermediates that must not survive eject:
-    unset USB_MOUNT_POINT USB_DRIVE_LETTER USB_LABEL \
+    unset USB_MOUNT_POINT USB_KEYS_FILE USB_DRIVE_LETTER USB_LABEL \
           USB_MANIFEST_VERSION USB_SYNC_LOG \
           USB_LOADED_PROJECTS USB_INITIALIZED \
           USB_DETECTED_DRIVE_LETTER USB_CACHED_DRIVE_LETTER \
@@ -2149,7 +2139,34 @@ SCAFFOLD
 #
 # MULTI-PANE: Each tmux pane is a separate shell. usb_load_keys must be called
 #   independently in each pane that needs keys. usb_shutdown kills all panes.
+#
+# MODULE BOUNDARY (commit 12): this section's only external inputs are
+#   USB_MOUNT_POINT (read exactly once, immediately below, to derive
+#   USB_KEYS_FILE) and usb_verify_connected (host-provided availability check
+#   called by every action function). The section owns its state
+#   (USB_KEYS_LOADED, _USB_LOADED_KEY_NAMES, initialized below). One allowed
+#   reverse edge: the host calls usb_unload_keys during teardown (usb_shutdown
+#   and the eject paths).
 # =============================================================================
+
+# Keys state (moved here in commit 12; previously in the top-level state block).
+# Initialize only if unset: usb_refresh re-sources with "force", bypassing the
+# already-initialized guard. Unconditional resets here would wipe key
+# bookkeeping while the secrets remain exported in the environment, leaving
+# usb_unload_keys unable to remove them (orphaned secrets).
+#   USB_KEYS_LOADED: true/false, whether keys are currently in environment.
+#   _USB_LOADED_KEY_NAMES: names exported by usb_load_keys, for clean unload.
+: "${USB_KEYS_LOADED:=false}"
+declare -p _USB_LOADED_KEY_NAMES >/dev/null 2>&1 || _USB_LOADED_KEY_NAMES=()
+
+# USB_KEYS_FILE: the single on-USB key-file path, derived once per source pass
+# from USB_MOUNT_POINT (set by detection above; re-derived on every usb_refresh).
+# Drive-scope: swept in _usb_clear_state. Not exported -- consumed only by keys
+# functions in this shell, and gpg receives the path as an argument, not via the
+# environment. When disconnected USB_MOUNT_POINT is unset and this holds a
+# placeholder that no function reads: every consumer gates on
+# usb_verify_connected (init/edit/load) or USB_CONNECTED (usb_keys_status).
+USB_KEYS_FILE="$USB_MOUNT_POINT/.keys/env.gpg"
 
 # _usb_gpg_check -- verify GPG loopback pinentry is available
 # Returns 0 if ready, 1 with actionable error if not.
@@ -2335,7 +2352,7 @@ EOF
         return 1
     fi
 
-    local usb_init_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_init_keys_gpg_path="$USB_KEYS_FILE"
     local usb_init_keys_tmp_path="/dev/shm/usb_keys_init_$$"
     local usb_init_keys_editor
     local usb_init_keys_has_valid_line
@@ -2355,7 +2372,7 @@ EOF
         return 1
     fi
 
-    mkdir -p "$USB_MOUNT_POINT/.keys"
+    mkdir -p "${USB_KEYS_FILE%/*}"
 
     # Write scaffold to tmpfs (RAM-only, never hits disk)
     cat > "$usb_init_keys_tmp_path" << 'SCAFFOLD'
@@ -2417,8 +2434,8 @@ SCAFFOLD
     shred -u "$usb_init_keys_tmp_path" 2>/dev/null || rm -f "$usb_init_keys_tmp_path"
 
     # Write README if it doesn't exist
-    if [[ ! -f "$USB_MOUNT_POINT/.keys/README" ]]; then
-        cat > "$USB_MOUNT_POINT/.keys/README" << 'README'
+    if [[ ! -f "${USB_KEYS_FILE%/*}/README" ]]; then
+        cat > "${USB_KEYS_FILE%/*}/README" << 'README'
 # .keys/ - Encrypted API Key Storage
 #
 # File: env.gpg
@@ -2484,7 +2501,7 @@ EOF
         return 1
     fi
 
-    local usb_edit_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_edit_keys_gpg_path="$USB_KEYS_FILE"
     local usb_edit_keys_tmp_path="/dev/shm/usb_keys_edit_$$"
     local usb_edit_keys_editor
     local usb_edit_keys_checksum_before
@@ -2607,7 +2624,7 @@ EOF
         return 1
     fi
 
-    local usb_load_keys_gpg_path="$USB_MOUNT_POINT/.keys/env.gpg"
+    local usb_load_keys_gpg_path="$USB_KEYS_FILE"
     local usb_load_keys_decrypted
     local usb_load_keys_key
     local usb_load_keys_value
@@ -2726,8 +2743,8 @@ EOF
     fi
 
     if [[ "$USB_CONNECTED" == true ]]; then
-        echo "usb: keys: source=$USB_MOUNT_POINT/.keys/env.gpg"
-        if [[ -f "$USB_MOUNT_POINT/.keys/env.gpg" ]]; then
+        echo "usb: keys: source=$USB_KEYS_FILE"
+        if [[ -f "$USB_KEYS_FILE" ]]; then
             echo "usb: keys: file=present"
         else
             echo "usb: keys: file=missing"

@@ -464,6 +464,7 @@ with those commits, not in advance.
 | At most one manifest-bearing WSL volume; ambiguity is never resolved by guessing | detection counts drive letters returned by `_usb_ps`; more than one aborts the source with an error, one per line (decision 5) | enforced |
 | Drive-letter cache lives under a per-user XDG path, not a predictable world-readable `/tmp` location | `USB_CACHE_FILE` = `${XDG_CACHE_HOME:-$HOME/.cache}/usb-sh/drive_letter`; parent dir created before the write | enforced |
 | Stale `safe.directory` entries for a repo under a prior mount are removed when it remounts elsewhere | `_usb_ensure_safe_directory` strips the mount prefix for WSL (`/mnt/*/`) and udisks (`/media/*/*/`, `/run/media/*/*/`), then unsets entries sharing the repo suffix but a different full path | enforced |
+| Keys section is a self-contained module: its only external inputs are USB_MOUNT_POINT (read exactly once, to derive USB_KEYS_FILE) and usb_verify_connected; keys state is declared and owned within the section | KEYS header documents the contract; USB_KEYS_FILE derived once at the section head and swept as drive-scope in _usb_clear_state; the single USB_MOUNT_POINT read is grep-assertable | documented |
 
 ---
 
