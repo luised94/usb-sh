@@ -489,27 +489,35 @@ with those commits, not in advance.
 
 ## Implementation Notes
 
-### Array Write: eval + printf %q in LOAD
+### Array Write: declare -n nameref in LOAD
 
 Bash arrays cannot be exported via the `export` builtin - only scalar
 variables can be exported to the environment. Per-project arrays are
-assigned into the global scope using eval with printf %q quoting:
+assigned into the global scope with a `declare -n` nameref pointing at the
+dynamically-named target:
 
 ```bash
-eval "USB_$${upper}_SYNC_FILES=($$(printf '%q ' "${entries[@]}"))"
+declare -n usb_sync_files_target="USB_${upper}_SYNC_FILES"
+usb_sync_files_target=("${USB_RESOLVED_SYNC_FILES[@]}")
+unset -n usb_sync_files_target
 ```
-printf %q quotes each entry safely, handling paths with spaces or special
-characters. No external dependencies.
 
-Array Read: declare -n Nameref in Functions
-Inside _usb_run_sync, the per-project
-array is read via a declare -n nameref rather than eval-by-index:
+The nameref assigns array elements directly, so entries with spaces or shell
+metacharacters need no quoting. Because the LOAD phase runs at top-level
+(source-time) scope, the assignment creates the global array in place. This
+replaced an earlier eval + printf %q form that built and re-parsed a shell
+string; the nameref removes that string-building step entirely. shellcheck
+reports the write-only nameref as SC2034 (it cannot follow the write through
+to the target), so each assignment carries a scoped disable directive.
+
+### Array Read: declare -n nameref in functions
+
+Inside _usb_run_sync, the per-project array is read via the same mechanism:
 
 ```bash
 declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
 ```
 
-Namerefs are cleaner than eval for reading and require bash 4.3+, which
-is confirmed on the target system. Namerefs are used for reading only -
-writing through a nameref to a dynamically-named global is less
-predictable and is avoided.
+Namerefs require bash 4.3+, which is confirmed on the target system and
+enforced by the startup version check. Both the read and the write now use
+namerefs; the earlier eval-based write was removed in commit 15.

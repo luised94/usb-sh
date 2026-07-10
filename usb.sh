@@ -371,22 +371,21 @@ if [[ "$USB_CONNECTED" == true ]]; then
         export "USB_${usb_project_name_upper}_LOCAL_DIR=$usb_parsed_local_dir"
         export "USB_${usb_project_name_upper}_REPO_PATH=$usb_parsed_repo_path"
 
-        # Bash arrays cannot cross subshell boundaries via export. eval + printf %q
-        # builds the assignment string with proper quoting for special characters,
-        # then evaluates it in the current shell to create the array.
-        usb_sync_files_assignment="USB_${usb_project_name_upper}_SYNC_FILES=("
-        for usb_resolved_sync_files_entry in "${USB_RESOLVED_SYNC_FILES[@]}"; do
-            usb_sync_files_assignment+="$(printf '%q' "$usb_resolved_sync_files_entry") "
-        done
-        usb_sync_files_assignment+=")"
-        eval "$usb_sync_files_assignment"
+        # Copy the resolved arrays into the per-project globals via namerefs.
+        # A nameref assigns array elements directly, so entries containing spaces
+        # or shell metacharacters need no quoting; this replaces the former
+        # eval + printf %q string-building. (Arrays still cannot be export-ed
+        # across subshells, but a nameref assignment in this top-level scope
+        # creates the global array in place.)
+        declare -n usb_sync_files_target="USB_${usb_project_name_upper}_SYNC_FILES"
+        # shellcheck disable=SC2034  # nameref out-param: written through, not read here
+        usb_sync_files_target=("${USB_RESOLVED_SYNC_FILES[@]}")
+        unset -n usb_sync_files_target
 
-        usb_sync_dirs_assignment="USB_${usb_project_name_upper}_SYNC_DIRS=("
-        for usb_resolved_sync_dirs_entry in "${USB_RESOLVED_SYNC_DIRS[@]}"; do
-            usb_sync_dirs_assignment+="$(printf '%q' "$usb_resolved_sync_dirs_entry") "
-        done
-        usb_sync_dirs_assignment+=")"
-        eval "$usb_sync_dirs_assignment"
+        declare -n usb_sync_dirs_target="USB_${usb_project_name_upper}_SYNC_DIRS"
+        # shellcheck disable=SC2034  # nameref out-param: written through, not read here
+        usb_sync_dirs_target=("${USB_RESOLVED_SYNC_DIRS[@]}")
+        unset -n usb_sync_dirs_target
 
         USB_LOADED_PROJECTS+=("$usb_project_name")
     done
@@ -405,10 +404,6 @@ if [[ "$USB_CONNECTED" == true ]]; then
     unset USB_RESOLVED_SYNC_FILES
     unset USB_RESOLVED_SYNC_DIRS
     unset usb_raw_sync_entry
-    unset usb_sync_files_assignment
-    unset usb_sync_dirs_assignment
-    unset usb_resolved_sync_files_entry
-    unset usb_resolved_sync_dirs_entry
 
     _usb_msg "loaded ${#USB_LOADED_PROJECTS[@]} project(s): ${USB_LOADED_PROJECTS[*]}"
 
