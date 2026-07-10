@@ -468,6 +468,7 @@ with those commits, not in advance.
 | Diagnostics go to stderr and data to stdout: non-data messages emit via _usb_msg / _usb_warn / _usb_err (all stderr); usb_status, usb_keys_status, usb_ps1_indicator, and captured-stdout helpers write data to stdout | emitters defined just after the version check; all non-data usb: / usb[WARN]: / usb[ERROR]: messages route through them (a literal-tilde help set and the usb[ps]: interop lines are documented exceptions) | convention + emitters |
 | "differs" sync entries whose source is large run a full cmp every sync; the operator is warned so the cost is a conscious choice | usb_check emits an advisory when a differs source exceeds USB_DIFFERS_SIZE_WARN (10 MiB default, machine-scope tunable) | checked (advisory) |
 | The file relay is one-directional under "newer": after a copy the dest is at least as new as the source, so the same file is not re-copied on the next sync (the "newer-relay" property) | _usb_run_sync copies with cp and no -p, so dest takes the current mtime; documented in the copy-policy comment | documented-only; UNGUARDED |
+| Each dest has exactly one owning source, sync entries are unique, and the relay never reverses (no A:B alongside B:A); same-source fan-out to many dests is allowed | usb_check aggregates every resolved source->dest pair across all confs and errors on same-dest/different-source, exact duplicates, and reversed pairs | enforced (check) |
 
 ---
 

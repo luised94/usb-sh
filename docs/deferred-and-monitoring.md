@@ -63,6 +63,19 @@ for when to pick it up.
 
 ---
 
+### Consolidate shared-file ownership into a shared.conf
+
+Today a shared file's authority is distributed: the owner project's conf carries
+the local -> shared entry and each reader's conf carries the shared -> local
+entry. A `shared.conf` could centralize ownership and fan-out for `shared/`
+files in one place (making the ownership boundary checkable in a single spot),
+at the cost of project confs no longer being self-contained. A lighter variant:
+point programs directly at `{USB_ROOT}/shared/x` and drop the reader copies
+entirely -- works only when the program tolerates the file living on the USB
+(startup-read configs, not hot paths). Deferred; the commit-14 ownership checks
+(no multi-write, no ping-pong, no duplicates, fan-out allowed) hold under either
+model, so this is not blocked by them.
+
 ## Things to Monitor
 
 Track these during daily use. Note observations in the friction log

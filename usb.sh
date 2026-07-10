@@ -1822,6 +1822,11 @@ EOF
     local usb_check_local_branch
     local usb_check_bare_branch
     local usb_check_errors=0
+    local usb_check_pair_sources=()
+    local usb_check_pair_dests=()
+    local usb_check_pair_projects=()
+    local usb_check_pair_i
+    local usb_check_pair_j
 
     if [[ "$USB_CONNECTED" != true ]]; then
         _usb_err "USB not connected, cannot check conf files"
@@ -1926,6 +1931,9 @@ EOF
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
             _usb_msg "check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            usb_check_pair_sources+=("$usb_check_entry_source")
+            usb_check_pair_dests+=("$usb_check_entry_dest")
+            usb_check_pair_projects+=("$usb_check_project_name")
             if [[ -n "$usb_check_entry_extra" ]]; then
                 _usb_msg "check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
                 usb_check_errors=$((usb_check_errors + 1))
@@ -1956,6 +1964,9 @@ EOF
             usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
             _usb_msg "check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
+            usb_check_pair_sources+=("$usb_check_entry_source")
+            usb_check_pair_dests+=("$usb_check_entry_dest")
+            usb_check_pair_projects+=("$usb_check_project_name")
             if [[ -n "$usb_check_entry_extra" ]]; then
                 _usb_msg "check:   WARN extra field(s) after condition (phase model removed): $usb_check_entry_extra"
                 usb_check_errors=$((usb_check_errors + 1))
@@ -2010,6 +2021,33 @@ done
             else
                 _usb_msg "check: $usb_check_conf_name matches reference"
             fi
+        done
+    fi
+    # Ownership / relay analysis across every resolved (source -> dest) pair from
+    # all confs. The relay is one-directional and each dest has one owner, so:
+    #   - same source AND same dest  -> exact duplicate entry (ERROR)
+    #   - same dest, different source -> two owners writing one path (ERROR)
+    #   - reversed pair A:B and B:A   -> ping-pong / bidirectional relay (ERROR)
+    # Same source with different dests is the allowed fan-out (one owner places a
+    # shared file, many readers copy it out) and is intentionally not flagged.
+    if [[ ${#usb_check_pair_dests[@]} -gt 1 ]]; then
+        _usb_msg "check: --- ownership / relay ---"
+        for ((usb_check_pair_i = 0; usb_check_pair_i < ${#usb_check_pair_dests[@]}; usb_check_pair_i++)); do
+            for ((usb_check_pair_j = usb_check_pair_i + 1; usb_check_pair_j < ${#usb_check_pair_dests[@]}; usb_check_pair_j++)); do
+                if [[ "${usb_check_pair_dests[usb_check_pair_i]}" == "${usb_check_pair_dests[usb_check_pair_j]}" ]]; then
+                    if [[ "${usb_check_pair_sources[usb_check_pair_i]}" == "${usb_check_pair_sources[usb_check_pair_j]}" ]]; then
+                        _usb_msg "check: ERROR duplicate sync entry: ${usb_check_pair_sources[usb_check_pair_i]} -> ${usb_check_pair_dests[usb_check_pair_i]} (${usb_check_pair_projects[usb_check_pair_i]}, ${usb_check_pair_projects[usb_check_pair_j]})"
+                    else
+                        _usb_msg "check: ERROR multiple sources write the same dest: ${usb_check_pair_dests[usb_check_pair_i]} (from ${usb_check_pair_sources[usb_check_pair_i]} in ${usb_check_pair_projects[usb_check_pair_i]}, ${usb_check_pair_sources[usb_check_pair_j]} in ${usb_check_pair_projects[usb_check_pair_j]})"
+                    fi
+                    usb_check_errors=$((usb_check_errors + 1))
+                fi
+                if [[ "${usb_check_pair_sources[usb_check_pair_i]}" == "${usb_check_pair_dests[usb_check_pair_j]}" \
+                   && "${usb_check_pair_dests[usb_check_pair_i]}" == "${usb_check_pair_sources[usb_check_pair_j]}" ]]; then
+                    _usb_msg "check: ERROR ping-pong (bidirectional relay): ${usb_check_pair_sources[usb_check_pair_i]} <-> ${usb_check_pair_dests[usb_check_pair_i]} (${usb_check_pair_projects[usb_check_pair_i]}, ${usb_check_pair_projects[usb_check_pair_j]})"
+                    usb_check_errors=$((usb_check_errors + 1))
+                fi
+            done
         done
     fi
     if [[ "$usb_check_errors" -gt 0 ]]; then
