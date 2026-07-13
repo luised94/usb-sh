@@ -1,4 +1,5 @@
 > **Status: All phases completed.** Implementation diverged from this plan in several areas - see [deferred-and-monitoring.md](deferred-and-monitoring.md) for ongoing tracking.
+> Phase was removed from the current version. All sync is essentially auto.
 
 # usb.sh - Implementation Plan
 

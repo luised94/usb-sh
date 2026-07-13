@@ -49,7 +49,6 @@ File: `.usb-manifest`. Plain key-value, one per line.
 VERSION=1
 LABEL=luised94-usb
 SYNC_LOG=.usb-sync.log
-DEFAULT_PHASE=auto
 ```
 
 Required keys: VERSION, LABEL. SYNC_LOG and DEFAULT_PHASE are optional
@@ -92,8 +91,6 @@ Both sync_file and sync_dir use: `src:dest:condition:phase`
 - `auto` -- runs on startup and eject
 - `manual` -- runs on explicit usb_sync call only
 - `always` -- runs on every trigger
-
-If phase is omitted, DEFAULT_PHASE from the manifest applies.
 
 ## How Sync Works
 
