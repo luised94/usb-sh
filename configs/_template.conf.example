@@ -8,7 +8,7 @@
 #
 # Result should look like:
 #   # yourproject - brief description
-#   local_dir={HOME}/personal_repos/yourproject
+#   local_dir={HOME}/personal_repos/usb-repos/yourproject
 #   repo_path=personal_repos/yourproject.git
 #
 # Parser ignores comment (#) and blank lines. Only key=value lines matter.
@@ -24,7 +24,7 @@
 #   condition: newer (copy if source is newer than dest)
 #   condition: newer | differs
 #
-local_dir={HOME}/personal_repos/PROJECTNAME
+local_dir={HOME}/personal_repos/usb-repos/PROJECTNAME
 repo_path=personal_repos/PROJECTNAME.git
 # sync_file={USB_ROOT}/shared/example.txt:{LOCAL_DIR}/example.txt:newer:auto
 # sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto

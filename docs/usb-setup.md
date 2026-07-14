@@ -59,7 +59,7 @@ but expected.
 File: `.usb-projects/<project_name>.conf`. Plain key-value, one per
 line. Not sourced -- parsed as data.
 ```
-local_dir={HOME}/personal_repos/myproject
+local_dir={HOME}/personal_repos/usb-repos/myproject
 repo_path=personal_repos/myproject.git
 sync_file={USB_ROOT}/shared/data.txt:{LOCAL_DIR}/data.txt:newer:auto
 sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto

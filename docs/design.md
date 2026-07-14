@@ -129,7 +129,7 @@ multi-value fields. The parser ignores blank lines and lines starting
 with `#`. Unknown keys produce a warning.
 
 .usb-projects/kbd.conf
-local_dir={HOME}/personal_repos/kbd
+local_dir={HOME}/personal_repos/usb-repos/kbd
 repo_path=personal_repos/kbd.git
 sync_file={USB_ROOT}/shared/kbd_zotero_library.bib:{LOCAL_DIR}/zotero_library.bib:newer:auto
 sync_dir=
