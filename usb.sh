@@ -396,51 +396,14 @@ if [[ "$USB_CONNECTED" == true ]]; then
             break
         fi
 
-        usb_parsed_local_dir=""
-        usb_parsed_repo_path=""
-        usb_parsed_sync_files=()
-        usb_parsed_sync_dirs=()
-
         usb_project_name=$(basename "$usb_conf_file_path" .conf)
 
-        # Parse conf as plain key-value data. File is not sourced.
-        # Token {HOME} is replaced with the runtime value of $HOME during parsing.
-        # Tokens {USB_ROOT} and {LOCAL_DIR} are resolved after the loop
-        # once local_dir is known.
-        while IFS= read -r usb_conf_line; do
-            usb_conf_line="${usb_conf_line%$'\r'}"
-            if [[ -z "$usb_conf_line" || "$usb_conf_line" == \#* ]]; then
-                continue
-            fi
-            if [[ "$usb_conf_line" != *=* ]]; then
-                _usb_warn "conf '$usb_project_name' skipping malformed line (no '='): $usb_conf_line"
-                continue
-            fi
-            usb_conf_key="${usb_conf_line%%=*}"
-            usb_conf_value="${usb_conf_line#*=}"
-            if [[ ! "$usb_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
-                _usb_warn "conf '$usb_project_name' skipping invalid key: $usb_conf_key"
-                continue
-            fi
-            case "$usb_conf_key" in
-                local_dir)
-                    usb_parsed_local_dir="${usb_conf_value//\{HOME\}/$HOME}"
-                    usb_parsed_local_dir="${usb_parsed_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-                    ;;
-                repo_path)
-                    usb_parsed_repo_path="$usb_conf_value"
-                    ;;
-                sync_file)
-                    usb_parsed_sync_files+=("$usb_conf_value")
-                    ;;
-                sync_dir)
-                    usb_parsed_sync_dirs+=("$usb_conf_value")
-                    ;;
-                *)
-                    _usb_warn "conf '$usb_project_name' unknown key: $usb_conf_key"
-                    ;;
-            esac
-        done < "$usb_conf_file_path"
+        # Parse conf as plain key-value data via the shared parser (defined
+        # above the FIND detection code -- source-time ordering). local_dir
+        # arrives with {HOME}/{WINDOWS_USER} resolved; sync entries arrive
+        # RAW and are resolved below once local_dir is known.
+        _usb_parse_conf "$usb_conf_file_path" usb_parsed_local_dir \
+            usb_parsed_repo_path usb_parsed_sync_files usb_parsed_sync_dirs
 
         if [[ -z "$usb_parsed_local_dir" ]]; then
             _usb_err "conf '$usb_project_name' missing required key: local_dir"
@@ -462,19 +425,13 @@ if [[ "$USB_CONNECTED" == true ]]; then
         # Resolve {USB_ROOT}, {LOCAL_DIR}, and {WINDOWS_USER} tokens in sync_file entries
         USB_RESOLVED_SYNC_FILES=()
         for usb_raw_sync_entry in "${usb_parsed_sync_files[@]}"; do
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{LOCAL_DIR\}/$usb_parsed_local_dir}"
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-            USB_RESOLVED_SYNC_FILES+=("$usb_raw_sync_entry")
+            USB_RESOLVED_SYNC_FILES+=("$(_usb_resolve_sync_entry "$usb_raw_sync_entry" "$usb_parsed_local_dir")")
         done
 
         # Resolve {USB_ROOT}, {LOCAL_DIR}, and {WINDOWS_USER} tokens in sync_dir entries
         USB_RESOLVED_SYNC_DIRS=()
         for usb_raw_sync_entry in "${usb_parsed_sync_dirs[@]}"; do
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{LOCAL_DIR\}/$usb_parsed_local_dir}"
-            usb_raw_sync_entry="${usb_raw_sync_entry//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-            USB_RESOLVED_SYNC_DIRS+=("$usb_raw_sync_entry")
+            USB_RESOLVED_SYNC_DIRS+=("$(_usb_resolve_sync_entry "$usb_raw_sync_entry" "$usb_parsed_local_dir")")
         done
 
         export "USB_${usb_project_name_upper}_LOCAL_DIR=$usb_parsed_local_dir"
@@ -504,9 +461,6 @@ if [[ "$USB_CONNECTED" == true ]]; then
     unset usb_parsed_repo_path
     unset usb_parsed_sync_files
     unset usb_parsed_sync_dirs
-    unset usb_conf_key
-    unset usb_conf_value
-    unset usb_conf_line
     unset usb_conf_file_path
     unset usb_project_name
     unset usb_project_name_upper
