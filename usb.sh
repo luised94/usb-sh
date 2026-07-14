@@ -1203,9 +1203,8 @@ EOF
     local usb_clone_project_name
     local usb_clone_local_dir
     local usb_clone_repo_path
-    local usb_clone_conf_key
-    local usb_clone_conf_value
-    local usb_clone_conf_line
+    local usb_clone_ignore_sync_files
+    local usb_clone_ignore_sync_dirs
     local usb_clone_bare_repo_path
     local usb_clone_parent_dir
     local usb_clone_branch
@@ -1219,35 +1218,13 @@ EOF
             break
         fi
 
-        usb_clone_local_dir=""
-        usb_clone_repo_path=""
         usb_clone_project_name=$(basename "$usb_clone_conf_file_path" .conf)
 
-        while IFS= read -r usb_clone_conf_line; do
-            usb_clone_conf_line="${usb_clone_conf_line%$'\r'}"
-            if [[ -z "$usb_clone_conf_line" || "$usb_clone_conf_line" == \#* ]]; then
-                continue
-            fi
-            if [[ "$usb_clone_conf_line" != *=* ]]; then
-                _usb_warn "conf '$usb_clone_project_name' skipping malformed line (no '='): $usb_clone_conf_line"
-                continue
-            fi
-            usb_clone_conf_key="${usb_clone_conf_line%%=*}"
-            usb_clone_conf_value="${usb_clone_conf_line#*=}"
-            if [[ ! "$usb_clone_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
-                _usb_warn "conf '$usb_clone_project_name' skipping invalid key: $usb_clone_conf_key"
-                continue
-            fi
-            case "$usb_clone_conf_key" in
-                local_dir)
-                    usb_clone_local_dir="${usb_clone_conf_value//\{HOME\}/$HOME}"
-                    usb_clone_local_dir="${usb_clone_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-                    ;;
-                repo_path)
-                    usb_clone_repo_path="$usb_clone_conf_value"
-                    ;;
-            esac
-        done < "$usb_clone_conf_file_path"
+        # Shared parser; only local_dir and repo_path are consumed, sync
+        # arrays go to throwaway locals.
+        _usb_parse_conf "$usb_clone_conf_file_path" usb_clone_local_dir \
+            usb_clone_repo_path usb_clone_ignore_sync_files \
+            usb_clone_ignore_sync_dirs
 
         if [[ -z "$usb_clone_local_dir" || -z "$usb_clone_repo_path" ]]; then
             _usb_warn "conf '$usb_clone_project_name' missing local_dir or repo_path, skipping"
