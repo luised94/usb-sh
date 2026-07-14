@@ -703,31 +703,15 @@ EOF
             return 1
         fi
 
-        local usb_commit_conf_key
-        local usb_commit_conf_value
-        local usb_commit_conf_line
-        while IFS= read -r usb_commit_conf_line; do
-            usb_commit_conf_line="${usb_commit_conf_line%$'\r'}"
-            if [[ -z "$usb_commit_conf_line" || "$usb_commit_conf_line" == \#* ]]; then
-                continue
-            fi
-            if [[ "$usb_commit_conf_line" != *=* ]]; then
-                _usb_warn "skipping malformed line (no '='): $usb_commit_conf_line"
-                continue
-            fi
-            usb_commit_conf_key="${usb_commit_conf_line%%=*}"
-            usb_commit_conf_value="${usb_commit_conf_line#*=}"
-            if [[ ! "$usb_commit_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
-                _usb_warn "skipping invalid key: $usb_commit_conf_key"
-                continue
-            fi
-            case "$usb_commit_conf_key" in
-                local_dir)
-                    usb_commit_local_dir="${usb_commit_conf_value//\{HOME\}/$HOME}"
-                    usb_commit_local_dir="${usb_commit_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-                    ;;
-            esac
-        done < "$usb_commit_config_file_path"
+        # Shared parser; only local_dir is consumed here, the rest go to
+        # throwaway locals. Reference confs are repo-side data with the same
+        # format as USB confs.
+        local usb_commit_ignore_repo_path
+        local usb_commit_ignore_sync_files
+        local usb_commit_ignore_sync_dirs
+        _usb_parse_conf "$usb_commit_config_file_path" usb_commit_local_dir \
+            usb_commit_ignore_repo_path usb_commit_ignore_sync_files \
+            usb_commit_ignore_sync_dirs
 
         if [[ -z "$usb_commit_local_dir" ]]; then
             _usb_err "could not resolve local_dir for project '$usb_commit_project_name' from config"
