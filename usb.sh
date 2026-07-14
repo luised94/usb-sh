@@ -1650,6 +1650,8 @@ EOF
 
     local usb_eject_project_name
     local usb_drive_still_present
+    local usb_eject_attempt
+    local usb_eject_ps_rc
 
     if ! usb_verify_connected; then
         _usb_msg "USB is not connected, cleaning up state"
@@ -1696,11 +1698,30 @@ EOF
             _usb_ps "
                 (New-Object -ComObject Shell.Application).NameSpace(17).ParseName('${USB_DRIVE_LETTER}:').InvokeVerb('Eject')
             "
-            usb_drive_still_present=$(_usb_ps "Test-Path '${USB_DRIVE_LETTER}:'")
-            if [[ "$usb_drive_still_present" == "True" ]]; then
-                _usb_warn "Windows did not eject the drive, it may still be busy"
-            else
+            # InvokeVerb('Eject') is asynchronous: an immediate Test-Path
+            # races Windows releasing the volume and false-flags successful
+            # ejects. Poll up to 5 attempts, 1s apart (worst case ~5s sleeps
+            # plus up to 10s _usb_ps timeout per probe; typical success exits
+            # on attempt 1-2).
+            usb_eject_attempt=0
+            usb_drive_still_present="True"
+            usb_eject_ps_rc=0
+            while [[ $usb_eject_attempt -lt 5 ]]; do
+                usb_drive_still_present=$(_usb_ps "Test-Path '${USB_DRIVE_LETTER}:'")
+                usb_eject_ps_rc=$?
+                [[ "$usb_drive_still_present" == "False" ]] && break
+                usb_eject_attempt=$((usb_eject_attempt + 1))
+                sleep 1
+            done
+            if [[ "$usb_drive_still_present" == "False" ]]; then
                 _usb_msg "drive ejected safely"
+            elif [[ "$usb_eject_ps_rc" -ne 0 ]]; then
+                _usb_warn "could not verify eject (interop error), unplug when drive light is off"
+            elif [[ "$usb_drive_still_present" == "True" ]]; then
+                _usb_warn "Windows did not eject the drive, it may still be busy"
+                _usb_msg "check for open Explorer windows or Windows-side handles"
+            else
+                _usb_warn "could not verify eject (interop error), unplug when drive light is off"
             fi
         fi
 
