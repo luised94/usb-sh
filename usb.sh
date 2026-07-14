@@ -46,7 +46,8 @@
 #   4) Run usb_init_bare function. Should initialize the bare git repo and push the commit.
 #   5) Test usb_pull, usb_push and usb_commit
 #   6) Use as intended. Sync using the usb functions only.
-# NOTES: Each commit is ammended since git is mostly used for per day history and multi-machine syncing, not per-operation due to the types of repos that are usually synced via the usb.
+# NOTES: usb_commit creates a timestamped commit per run; push is plain
+# (non-force), so non-fast-forward is refused natively.
 #
 # =============================================================================
 
