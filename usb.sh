@@ -2063,9 +2063,8 @@ EOF
     local usb_new_project_editor
     local usb_new_project_local_dir
     local usb_new_project_repo_path
-    local usb_new_project_conf_key
-    local usb_new_project_conf_value
-    local usb_new_project_conf_line
+    local usb_new_project_ignore_sync_files
+    local usb_new_project_ignore_sync_dirs
     local usb_new_project_has_local_dir=false
     local usb_new_project_has_repo_path=false
 
@@ -2132,39 +2131,16 @@ SCAFFOLD
         return 1
     fi
 
-    # Validate conf after editor exits
-    while IFS= read -r usb_new_project_conf_line; do
-        usb_new_project_conf_line="${usb_new_project_conf_line%$'\r'}"
-        if [[ -z "$usb_new_project_conf_line" || "$usb_new_project_conf_line" == \#* ]]; then
-            continue
-        fi
-        if [[ "$usb_new_project_conf_line" != *=* ]]; then
-            _usb_warn "skipping malformed line (no '='): $usb_new_project_conf_line"
-            continue
-        fi
-        usb_new_project_conf_key="${usb_new_project_conf_line%%=*}"
-        usb_new_project_conf_value="${usb_new_project_conf_line#*=}"
-        if [[ ! "$usb_new_project_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
-            _usb_warn "skipping invalid key: $usb_new_project_conf_key"
-            continue
-        fi
-        case "$usb_new_project_conf_key" in
-            local_dir)
-                usb_new_project_has_local_dir=true
-                usb_new_project_local_dir="${usb_new_project_conf_value//\{HOME\}/$HOME}"
-                usb_new_project_local_dir="${usb_new_project_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-                ;;
-            repo_path)
-                usb_new_project_has_repo_path=true
-                usb_new_project_repo_path="$usb_new_project_conf_value"
-                ;;
-            sync_file|sync_dir)
-                ;;
-            *)
-                _usb_warn "unknown key: $usb_new_project_conf_key"
-                ;;
-        esac
-    done < "$usb_new_project_tmp_path"
+    # Validate conf after editor exits, via the shared parser. Note: the
+    # former inline loop treated 'local_dir=' (key present, empty value) as
+    # satisfying the requirement; the parser leaves the out-param empty in
+    # that case, so an empty value now counts as missing. Strictly safer --
+    # an empty local_dir was never usable.
+    _usb_parse_conf "$usb_new_project_tmp_path" usb_new_project_local_dir \
+        usb_new_project_repo_path usb_new_project_ignore_sync_files \
+        usb_new_project_ignore_sync_dirs
+    [[ -n "$usb_new_project_local_dir" ]] && usb_new_project_has_local_dir=true
+    [[ -n "$usb_new_project_repo_path" ]] && usb_new_project_has_repo_path=true
 
     if [[ "$usb_new_project_has_local_dir" == false || "$usb_new_project_has_repo_path" == false ]]; then
         _usb_err "conf missing required key(s):"
