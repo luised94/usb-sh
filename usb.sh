@@ -535,7 +535,8 @@ _usb_ensure_safe_directory() {
 # =============================================================
 # _usb_ensure_all_safe_directories
 # Iterates loaded projects, ensures safe.directory for each.
-# Call at end of LOAD, after all projects are loaded.
+# Called at source time from the SYNC section's connected guard
+# (LOAD precedes FUNCTIONS, so it cannot run at end of LOAD).
 # @@TODO: Need to consolidate into the first one. Could use recursion.
 # =============================================================
 _usb_ensure_all_safe_directories() {
@@ -2845,6 +2846,14 @@ EOF
 # =============================================================================
 
 if [[ "$USB_CONNECTED" == true ]]; then
+    # Repair safe.directory entries for all loaded projects on every
+    # connected source: after a drive-letter change, push/pull would
+    # otherwise fail until init_bare/clone_all re-ran. Cost: one git config
+    # read per source when connected. Cannot run "at end of LOAD" as the
+    # function's original comment suggested -- LOAD precedes FUNCTIONS, so
+    # this SYNC slot (same one _usb_run_sync already uses) is the earliest
+    # valid call site.
+    _usb_ensure_all_safe_directories
     if [[ ${#USB_LOADED_PROJECTS[@]} -gt 0 ]]; then
         for usb_startup_project_name in "${USB_LOADED_PROJECTS[@]}"; do
             _usb_run_sync "$usb_startup_project_name"
