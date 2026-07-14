@@ -136,6 +136,104 @@ _usb_ps() {
     return 0
 }
 
+# _usb_parse_conf -- parse a project conf file as plain key-value data.
+# The file is never sourced (design invariant). Defined here, above LOAD,
+# because LOAD calls it at source time (see the source-time ordering note in
+# the header).
+#
+# Arguments:
+#   conf_path            -- path to the conf file
+#   out_local_dir        -- NAME of variable receiving local_dir ({HOME} and
+#                           {WINDOWS_USER} resolved; empty if key absent)
+#   out_repo_path        -- NAME of variable receiving repo_path (verbatim)
+#   out_sync_files_array -- NAME of array receiving RAW sync_file values
+#   out_sync_dirs_array  -- NAME of array receiving RAW sync_dir values
+#
+# sync entries are appended UNRESOLVED; callers resolve {USB_ROOT},
+# {LOCAL_DIR}, and {WINDOWS_USER} via _usb_resolve_sync_entry once local_dir
+# is known. Required keys are NOT enforced -- callers decide (LOAD errors,
+# usb_new_project only checks presence, usb_commit needs only local_dir).
+# Diagnostics go to stderr; warn+skip on malformed lines (no '='), invalid
+# keys (not ^[a-z][a-z0-9_]*$), and unknown keys. Blank/comment/CRLF handled.
+# rc: 0 if conf_path is a readable file; 1 otherwise (out-params reset).
+_usb_parse_conf() {
+    local usb_pc_conf_path="$1"
+    # Nameref out-params: internal names carry the usb_pc_ prefix so no
+    # caller-passed name can collide (nameref safety invariant).
+    declare -n usb_pc_out_local_dir="$2"
+    declare -n usb_pc_out_repo_path="$3"
+    declare -n usb_pc_out_sync_files="$4"
+    declare -n usb_pc_out_sync_dirs="$5"
+    local usb_pc_project_name
+    local usb_pc_line
+    local usb_pc_key
+    local usb_pc_value
+
+    usb_pc_out_local_dir=""
+    usb_pc_out_repo_path=""
+    usb_pc_out_sync_files=()
+    usb_pc_out_sync_dirs=()
+
+    if [[ ! -f "$usb_pc_conf_path" || ! -r "$usb_pc_conf_path" ]]; then
+        return 1
+    fi
+
+    usb_pc_project_name=$(basename "$usb_pc_conf_path" .conf)
+
+    while IFS= read -r usb_pc_line; do
+        usb_pc_line="${usb_pc_line%$'\r'}"
+        if [[ -z "$usb_pc_line" || "$usb_pc_line" == \#* ]]; then
+            continue
+        fi
+        if [[ "$usb_pc_line" != *=* ]]; then
+            _usb_warn "conf '$usb_pc_project_name' skipping malformed line (no '='): $usb_pc_line"
+            continue
+        fi
+        usb_pc_key="${usb_pc_line%%=*}"
+        usb_pc_value="${usb_pc_line#*=}"
+        if [[ ! "$usb_pc_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
+            _usb_warn "conf '$usb_pc_project_name' skipping invalid key: $usb_pc_key"
+            continue
+        fi
+        case "$usb_pc_key" in
+            local_dir)
+                usb_pc_out_local_dir="${usb_pc_value//\{HOME\}/$HOME}"
+                usb_pc_out_local_dir="${usb_pc_out_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+                ;;
+            repo_path)
+                usb_pc_out_repo_path="$usb_pc_value"
+                ;;
+            sync_file)
+                usb_pc_out_sync_files+=("$usb_pc_value")
+                ;;
+            sync_dir)
+                usb_pc_out_sync_dirs+=("$usb_pc_value")
+                ;;
+            *)
+                _usb_warn "conf '$usb_pc_project_name' unknown key: $usb_pc_key"
+                ;;
+        esac
+    done < "$usb_pc_conf_path"
+    return 0
+}
+
+# _usb_resolve_sync_entry -- resolve tokens in a raw sync_file/sync_dir entry.
+# Arguments:
+#   raw_entry -- unresolved entry string (source:dest:condition)
+#   local_dir -- resolved local_dir for the owning project
+# stdout: entry with {USB_ROOT} -> $USB_MOUNT_POINT, {LOCAL_DIR} -> local_dir,
+# {WINDOWS_USER} -> $USB_WINDOWS_USER (both globals set before LOAD runs).
+# Pure transform; no validation; rc 0.
+_usb_resolve_sync_entry() {
+    local usb_rse_entry="$1"
+    local usb_rse_local_dir="$2"
+    usb_rse_entry="${usb_rse_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
+    usb_rse_entry="${usb_rse_entry//\{LOCAL_DIR\}/$usb_rse_local_dir}"
+    usb_rse_entry="${usb_rse_entry//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
+    printf '%s\n' "$usb_rse_entry"
+    return 0
+}
+
 if [[ "$1" == "force" ]]; then
     rm -f "$USB_CACHE_FILE"
 fi
