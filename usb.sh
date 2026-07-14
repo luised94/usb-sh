@@ -136,6 +136,21 @@ _usb_ps() {
     return 0
 }
 
+# _usb_win_path -- build a Windows-style path for a repo-relative path.
+# Arguments:
+#   repo_relative_path -- e.g. personal_repos/x.git
+# stdout: ${USB_DRIVE_LETTER}:\<path with / -> \>  (e.g. D:\personal_repos\x.git)
+# rc: 1 if USB_DRIVE_LETTER is empty. Pure string transform; deliberately
+# not a wslpath wrapper.
+_usb_win_path() {
+    local usb_wp_rel="$1"
+    if [[ -z "$USB_DRIVE_LETTER" ]]; then
+        return 1
+    fi
+    printf '%s\n' "${USB_DRIVE_LETTER}:\\${usb_wp_rel//\//\\}"
+    return 0
+}
+
 # _usb_parse_conf -- parse a project conf file as plain key-value data.
 # The file is never sourced (design invariant). Defined here, above LOAD,
 # because LOAD calls it at source time (see the source-time ordering note in
@@ -1116,7 +1131,12 @@ EOF
 
     if [[ "$USB_ENV" == "wsl" ]]; then
         # build windows path for PowerShell
-        usb_init_win_path="${USB_DRIVE_LETTER}:\\${usb_init_repo_path_ref//\//\\}"
+        if ! usb_init_win_path=$(_usb_win_path "$usb_init_repo_path_ref"); then
+            _usb_err "USB_DRIVE_LETTER is not set, cannot build Windows path"
+            unset -n usb_init_local_dir_ref
+            unset -n usb_init_repo_path_ref
+            return 1
+        fi
 
         if [[ "$usb_init_needs_init" == true ]]; then
             # check for Windows git
