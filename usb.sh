@@ -1867,9 +1867,6 @@ EOF
     local usb_check_repo_path
     local usb_check_sync_files
     local usb_check_sync_dirs
-    local usb_check_conf_key
-    local usb_check_conf_value
-    local usb_check_conf_line
     local usb_check_entry
     local usb_check_entry_source
     local usb_check_entry_dest
@@ -1897,49 +1894,14 @@ EOF
             break
         fi
 
-        usb_check_local_dir=""
-        usb_check_repo_path=""
-        usb_check_sync_files=()
-        usb_check_sync_dirs=()
-
         usb_check_project_name=$(basename "$usb_check_conf_file_path" .conf)
         _usb_msg "check: --- $usb_check_project_name ---"
         _usb_msg "check: conf=$usb_check_conf_file_path"
 
-        while IFS= read -r usb_check_conf_line; do
-            usb_check_conf_line="${usb_check_conf_line%$'\r'}"
-            if [[ -z "$usb_check_conf_line" || "$usb_check_conf_line" == \#* ]]; then
-                continue
-            fi
-            if [[ "$usb_check_conf_line" != *=* ]]; then
-                _usb_warn "check: skipping malformed line (no '='): $usb_check_conf_line"
-                continue
-            fi
-            usb_check_conf_key="${usb_check_conf_line%%=*}"
-            usb_check_conf_value="${usb_check_conf_line#*=}"
-            if [[ ! "$usb_check_conf_key" =~ ^[a-z][a-z0-9_]*$ ]]; then
-                _usb_warn "check: skipping invalid key: $usb_check_conf_key"
-                continue
-            fi
-            case "$usb_check_conf_key" in
-                local_dir)
-                    usb_check_local_dir="${usb_check_conf_value//\{HOME\}/$HOME}"
-                    usb_check_local_dir="${usb_check_local_dir//\{WINDOWS_USER\}/$USB_WINDOWS_USER}"
-                    ;;
-                repo_path)
-                    usb_check_repo_path="$usb_check_conf_value"
-                    ;;
-                sync_file)
-                    usb_check_sync_files+=("$usb_check_conf_value")
-                    ;;
-                sync_dir)
-                    usb_check_sync_dirs+=("$usb_check_conf_value")
-                    ;;
-                *)
-                    _usb_msg "check: WARN unknown key: $usb_check_conf_key"
-                    ;;
-            esac
-        done < "$usb_check_conf_file_path"
+        # Shared parser: same interpreter of conf data as LOAD. Sync entries
+        # arrive RAW; resolved per-entry below.
+        _usb_parse_conf "$usb_check_conf_file_path" usb_check_local_dir \
+            usb_check_repo_path usb_check_sync_files usb_check_sync_dirs
 
         if [[ -z "$usb_check_local_dir" ]]; then
             _usb_msg "check: ERROR local_dir missing"
@@ -1985,8 +1947,7 @@ EOF
         fi
 
         for usb_check_entry in "${usb_check_sync_files[@]}"; do
-            usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
+            usb_check_entry=$(_usb_resolve_sync_entry "$usb_check_entry" "$usb_check_local_dir")
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
             _usb_msg "check: sync_file=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
             usb_check_pair_sources+=("$usb_check_entry_source")
@@ -2018,8 +1979,7 @@ EOF
         done
 
         for usb_check_entry in "${usb_check_sync_dirs[@]}"; do
-            usb_check_entry="${usb_check_entry//\{USB_ROOT\}/$USB_MOUNT_POINT}"
-            usb_check_entry="${usb_check_entry//\{LOCAL_DIR\}/$usb_check_local_dir}"
+            usb_check_entry=$(_usb_resolve_sync_entry "$usb_check_entry" "$usb_check_local_dir")
             IFS=: read -r usb_check_entry_source usb_check_entry_dest usb_check_entry_condition usb_check_entry_extra <<< "$usb_check_entry"
             _usb_msg "check: sync_dir=$usb_check_entry_source -> $usb_check_entry_dest [$usb_check_entry_condition]"
             usb_check_pair_sources+=("$usb_check_entry_source")
