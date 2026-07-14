@@ -1728,8 +1728,10 @@ usb_status - print diagnostic information about USB state
 Usage:
   usb_status
 Shows connection state, mount point, manifest info, and
-per-project details including local_dir, repo_path, and
-sync entry counts.
+per-project details including local_dir, repo_path,
+sync entry counts, worktree cleanliness, and divergence
+from the bare repo (ahead/behind; n/a with a reason when
+it cannot be computed, e.g. unfetched bare commits).
 EOF
         return 0
     fi
@@ -1740,6 +1742,12 @@ EOF
     local usb_status_repo_path_variable_name
     local usb_status_sync_files_variable_name
     local usb_status_sync_dirs_variable_name
+    local usb_status_bare_repo_path
+    local usb_status_dirty_count
+    local usb_status_branch
+    local usb_status_bare_ref
+    local usb_status_ahead
+    local usb_status_behind
     echo "usb: status: connected=$USB_CONNECTED"
     echo "usb: status: environment=$USB_ENV"
     if [[ "$USB_CONNECTED" != true ]]; then
@@ -1770,6 +1778,46 @@ EOF
         echo "usb: status:   repo_path=$usb_status_repo_path_ref"
         echo "usb: status:   sync_files_count=${#usb_status_sync_files_ref[@]}"
         echo "usb: status:   sync_dirs_count=${#usb_status_sync_dirs_ref[@]}"
+
+        # Worktree cleanliness and divergence vs the bare repo. Data output
+        # (stdout) like the rest of usb_status. Every degradation renders as
+        # "n/a (<reason>)"; never a nonzero rc -- status is a reporter.
+        if [[ ! -e "$usb_status_local_dir_ref/.git" ]]; then
+            echo "usb: status:   worktree=n/a (local .git missing)"
+            echo "usb: status:   vs_bare=n/a (local .git missing)"
+        else
+            usb_status_dirty_count=$(git -C "$usb_status_local_dir_ref" status --porcelain 2>/dev/null | wc -l)
+            if [[ "$usb_status_dirty_count" -eq 0 ]]; then
+                echo "usb: status:   worktree=clean"
+            else
+                echo "usb: status:   worktree=dirty ($usb_status_dirty_count changes)"
+            fi
+
+            usb_status_bare_repo_path="$USB_MOUNT_POINT/$usb_status_repo_path_ref"
+            usb_status_branch=$(git -C "$usb_status_local_dir_ref" symbolic-ref --short HEAD 2>/dev/null)
+            if [[ ! -d "$usb_status_bare_repo_path" ]]; then
+                echo "usb: status:   vs_bare=n/a (bare repo missing)"
+            elif [[ -z "$usb_status_branch" ]]; then
+                echo "usb: status:   vs_bare=n/a (detached HEAD)"
+            else
+                usb_status_bare_ref=$(git -C "$usb_status_bare_repo_path" rev-parse "$usb_status_branch" 2>/dev/null)
+                if [[ -z "$usb_status_bare_ref" ]]; then
+                    echo "usb: status:   vs_bare=n/a (bare branch missing)"
+                elif ! git -C "$usb_status_local_dir_ref" cat-file -e "$usb_status_bare_ref" 2>/dev/null; then
+                    echo "usb: status:   vs_bare=n/a (bare has unfetched commits, run usb_pull)"
+                else
+                    usb_status_ahead=$(git -C "$usb_status_local_dir_ref" rev-list --count "$usb_status_bare_ref..HEAD" 2>/dev/null)
+                    usb_status_behind=$(git -C "$usb_status_local_dir_ref" rev-list --count "HEAD..$usb_status_bare_ref" 2>/dev/null)
+                    if [[ -z "$usb_status_ahead" || -z "$usb_status_behind" ]]; then
+                        echo "usb: status:   vs_bare=n/a (rev-list failed)"
+                    elif [[ "$usb_status_ahead" -eq 0 && "$usb_status_behind" -eq 0 ]]; then
+                        echo "usb: status:   vs_bare=in-sync"
+                    else
+                        echo "usb: status:   vs_bare=ahead $usb_status_ahead, behind $usb_status_behind"
+                    fi
+                fi
+            fi
+        fi
 
         unset -n usb_status_local_dir_ref
         unset -n usb_status_repo_path_ref
