@@ -64,6 +64,10 @@ fi
 _usb_msg()  { echo "usb: $*" >&2; }
 _usb_warn() { echo "usb[WARN]: $*" >&2; }
 _usb_err()  { echo "usb[ERROR]: $*" >&2; }
+# _usb_dbg -- emit only when USB_DEBUG=1 (machine-scope tunable, see FIND
+# section). Guard-then-return form so rc is always 0: callers never check it,
+# but a trailing failed [[ ]] as last command would leak rc 1.
+_usb_dbg() { [[ "${USB_DEBUG:-0}" == "1" ]] || return 0; echo "usb[dbg]: $*" >&2; }
 
 USB_SCRIPT_PATH="${BASH_SOURCE[0]}"
 if [[ "$USB_INITIALIZED" == true && "$1" != "force" ]]; then
@@ -83,6 +87,12 @@ USB_MANIFEST_FILENAME=".usb-manifest"
 # draws a usb_check advisory, since differs runs a full cmp on every sync.
 # Default 10 MiB; override by setting USB_DIFFERS_SIZE_WARN before sourcing.
 USB_DIFFERS_SIZE_WARN="${USB_DIFFERS_SIZE_WARN:-10485760}"
+# Machine-scope tunable: USB_DEBUG=1 enables usb[dbg] diagnostics (per-entry
+# sync evaluation/skip chatter). Default 0. NOT swept by _usb_clear_state --
+# like _USB_PS_AVAILABLE, this is a property of the session, not the drive.
+# Enable per-session: set USB_DEBUG=1 before sourcing, or export any time
+# (read at call time by _usb_dbg).
+USB_DEBUG="${USB_DEBUG:-0}"
 export USB_CONNECTED=false
 unset USB_MOUNT_POINT
 unset USB_DRIVE_LETTER
@@ -1323,7 +1333,7 @@ _usb_run_sync() {
             # Format: source:dest:condition
             IFS=: read -r usb_sync_source_path usb_sync_dest_path usb_sync_condition <<< "$usb_sync_entry"
 
-            _usb_msg "[$usb_sync_project_name] evaluating entry: $usb_sync_source_path -> $usb_sync_dest_path (condition: $usb_sync_condition)"
+            _usb_dbg "[$usb_sync_project_name] evaluating entry: $usb_sync_source_path -> $usb_sync_dest_path (condition: $usb_sync_condition)"
 
             usb_sync_copy_result="SKIP"
 
@@ -1347,16 +1357,16 @@ _usb_run_sync() {
                     fi
                 else
 
-                    _usb_msg "[$usb_sync_project_name] skipping (source not newer): $usb_sync_source_path"
+                    _usb_dbg "[$usb_sync_project_name] skipping (source not newer): $usb_sync_source_path"
 
                 fi
             elif [[ "$usb_sync_condition" == "differs" ]]; then
                 # cmp -s: identical -> skip; differ or dest missing -> copy.
                 # Source missing is a graceful skip (parallels -nt for "newer").
                 if [[ ! -e "$usb_sync_source_path" ]]; then
-                    _usb_msg "[$usb_sync_project_name] skipping (source does not exist): $usb_sync_source_path"
+                    _usb_dbg "[$usb_sync_project_name] skipping (source does not exist): $usb_sync_source_path"
                 elif cmp -s "$usb_sync_source_path" "$usb_sync_dest_path"; then
-                    _usb_msg "[$usb_sync_project_name] skipping (identical): $usb_sync_source_path"
+                    _usb_dbg "[$usb_sync_project_name] skipping (identical): $usb_sync_source_path"
                 else
                     usb_sync_dest_dir=$(dirname "$usb_sync_dest_path")
                     if [[ ! -d "$usb_sync_dest_dir" ]]; then
@@ -1434,7 +1444,7 @@ _usb_run_sync() {
                 _usb_warn "[$usb_sync_project_name] sync_dir skipped $usb_sync_symlink_count symlink(s) in $usb_sync_source_path"
             fi
 
-            _usb_msg "[$usb_sync_project_name] scanning $usb_sync_source_path for files to sync..."
+            _usb_dbg "[$usb_sync_project_name] scanning $usb_sync_source_path for files to sync..."
 
             while IFS= read -r usb_sync_source_file_path; do
                 usb_sync_relative_path="${usb_sync_source_file_path#"$usb_sync_source_path"/}"
