@@ -39,6 +39,24 @@ USB without duplicating infrastructure.
 - Multi-hop syncs (e.g. Zotero  USB) - project modules do this
 - Project-specific aliases, functions, or prompt customization
 
+### Local repo ownership: ~/personal_repos/usb-repos/
+
+Repos under `~/personal_repos/usb-repos/` are usb-sh-controlled: usb.sh is
+their only transport (commit/push/pull run through the usb_* functions
+against the bare repos on the USB). The my_config repo functions
+(`pull_all_repos` and push-equivalents) must not operate on them; their
+one-level glob over `~/personal_repos/*` intentionally excludes the
+`usb-repos/` subtree and that exclusion is load-bearing -- do not make the
+glob recursive without revisiting this rule. Presupposition recorded here:
+one repo, one transport (usb repos have no GitHub origin).
+
+This layout was established by the 2026-07 migration (implementation plan,
+M-gate): each usb-synced repo moved from `~/personal_repos/<name>` to
+`~/personal_repos/usb-repos/<name>`, live confs and reference confs updated
+to match. `usb_new_project` scaffolds new projects under the subtree by
+default. lab is the exception -- its local_dir is a Windows desktop path,
+outside `~/personal_repos`, so the rule and the migration do not apply to it.
+
 ---
 
 ## USB File Structure
@@ -521,3 +539,18 @@ declare -n usb_sync_files_array_ref="$usb_sync_files_variable_name"
 Namerefs require bash 4.3+, which is confirmed on the target system and
 enforced by the startup version check. Both the read and the write now use
 namerefs; the earlier eval-based write was removed in commit 15.
+
+### Behavior changes recorded (2026-07 refactor)
+
+- `usb_check` now resolves `{WINDOWS_USER}` in sync entries via the shared
+  `_usb_resolve_sync_entry` helper, matching LOAD. Previously the token
+  passed through unresolved and false-flagged "source exists=no" for any
+  conf using it in sync paths.
+- `_usb_ensure_all_safe_directories` is now actually invoked: at source
+  time, from the SYNC section's `USB_CONNECTED` guard (the same slot
+  `_usb_run_sync` uses). It cannot run "at end of LOAD" because LOAD
+  precedes FUNCTIONS. This repairs `safe.directory` entries after a
+  drive-letter change on every connected source.
+- Conf parsing is unified in `_usb_parse_conf` / `_usb_resolve_sync_entry`;
+  LOAD, `usb_check`, `usb_commit` (fallback), `usb_clone_all`, and
+  `usb_new_project` all consume the same interpreter of conf data.
