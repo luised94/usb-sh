@@ -1256,6 +1256,11 @@ EOF
             fi
         fi
 
+        # dubious-ownership guard BEFORE any git read of the bare repo: on a
+        # fresh machine the branch detection below (and the clone itself)
+        # would otherwise fail before the former end-of-loop raw add ran.
+        _usb_ensure_safe_directory "$usb_clone_bare_repo_path"
+
         # detect actual branch in bare repo before cloning
         usb_clone_branch=$(git -C "$usb_clone_bare_repo_path" branch --list 2>/dev/null | sed 's/^[* ]*//' | head -n1)
 
@@ -1281,9 +1286,6 @@ EOF
             fi
         fi
 
-        if [[ "$USB_ENV" == "wsl" ]]; then
-            git config --global --add safe.directory "$usb_clone_bare_repo_path"
-        fi
     done
 
     _usb_msg "clone_all complete: $usb_clone_cloned_count cloned, $usb_clone_skipped_count skipped, $usb_clone_error_count errors"
