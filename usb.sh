@@ -2209,7 +2209,7 @@ EOF
 # sync_dir format: src:dest:condition
 #   Same as sync_file but syncs all files in directory recursively.
 
-local_dir={HOME}/personal_repos/${usb_new_project_name}
+local_dir={HOME}/personal_repos/usb-repos/${usb_new_project_name}
 repo_path=personal_repos/${usb_new_project_name}.git
 # sync_file={USB_ROOT}/shared/example.txt:{LOCAL_DIR}/example.txt:newer:auto
 # sync_dir={USB_ROOT}/shared/docs:{LOCAL_DIR}/docs:newer:auto
